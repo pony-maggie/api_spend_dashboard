@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import math
 from typing import Any, Iterable
 
 from api_spend_dashboard.config import Settings
@@ -131,6 +132,8 @@ def _non_negative_float(value: Any) -> float:
         amount = float(value or 0)
     except (TypeError, ValueError) as exc:
         raise ProviderSyncError("parse_error", "Gemini cost amount was not numeric") from exc
+    if not math.isfinite(amount):
+        raise ProviderSyncError("parse_error", "Gemini cost amount must be finite")
     if amount < 0:
         raise ProviderSyncError("parse_error", "Gemini cost amount must be non-negative")
     return amount

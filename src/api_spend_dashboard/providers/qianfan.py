@@ -121,9 +121,8 @@ def _signed_headers(
         canonical_request.encode(),
         hashlib.sha256,
     ).hexdigest()
-    headers["Authorization"] = (
-        f"{auth_prefix}/{'/'.join(signed_header_names)}/{signature}"
-    )
+    signed_headers = ";".join(signed_header_names)
+    headers["Authorization"] = f"{auth_prefix}/{signed_headers}/{signature}"
     return headers
 
 
@@ -138,9 +137,9 @@ def _aggregate_metrics(payload: dict[str, Any]) -> dict[str, int]:
     for metric in metrics:
         if not isinstance(metric, dict):
             raise ProviderSyncError("parse_error", "Qianfan metric must be a JSON object")
-        aggregate["input_tokens"] += _non_negative_int(metric.get("inputTokensTotal"), "inputTokensTotal")
-        aggregate["output_tokens"] += _non_negative_int(metric.get("outputTokensTotal"), "outputTokensTotal")
-        aggregate["requests"] += _non_negative_int(metric.get("requestTotal"), "requestTotal")
+        aggregate["input_tokens"] += _required_non_negative_int(metric, "inputTokensTotal")
+        aggregate["output_tokens"] += _required_non_negative_int(metric, "outputTokensTotal")
+        aggregate["requests"] += _required_non_negative_int(metric, "requestTotal")
     aggregate["total_tokens"] = aggregate["input_tokens"] + aggregate["output_tokens"]
     return aggregate
 
@@ -216,11 +215,26 @@ def _json_dict(response: httpx.Response) -> dict[str, Any]:
     return payload
 
 
-def _non_negative_int(value: Any, field_name: str) -> int:
-    try:
-        parsed = int(value or 0)
-    except (TypeError, ValueError) as exc:
-        raise ProviderSyncError("parse_error", f"Qianfan {field_name} was not an integer") from exc
+def _required_non_negative_int(metric: dict[str, Any], field_name: str) -> int:
+    if field_name not in metric:
+        raise ProviderSyncError("parse_error", f"Qianfan {field_name} was missing")
+    value = metric[field_name]
+    if isinstance(value, bool):
+        raise ProviderSyncError("parse_error", f"Qianfan {field_name} was not an integer")
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float):
+        if not value.is_integer():
+            raise ProviderSyncError("parse_error", f"Qianfan {field_name} was not an integer")
+        parsed = int(value)
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if not stripped or not stripped.isdecimal():
+            raise ProviderSyncError("parse_error", f"Qianfan {field_name} was not an integer")
+        parsed = int(stripped)
+    else:
+        raise ProviderSyncError("parse_error", f"Qianfan {field_name} was not an integer")
+
     if parsed < 0:
         raise ProviderSyncError("parse_error", f"Qianfan {field_name} must be non-negative")
     return parsed
