@@ -69,7 +69,29 @@ def test_schema_uses_planned_columns(temp_db_url):
         "created_at",
         "updated_at",
     ]
+    provider_columns = _columns_by_name(db, "providers")
+    assert provider_columns["enabled"]["dflt_value"] == "0"
+    assert provider_columns["status"]["dflt_value"] == "'disabled'"
+
     assert "snapshots_written" in _column_names(db, "sync_runs")
+    assert _column_names(db, "usage_snapshots") == [
+        "id",
+        "provider_id",
+        "period_start",
+        "period_end",
+        "granularity",
+        "currency",
+        "cost_amount",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "requests",
+        "quota_limit",
+        "quota_remaining",
+        "quota_reset_at",
+        "raw_summary_json",
+        "created_at",
+    ]
     assert _column_names(db, "manual_items") == [
         "id",
         "provider_id",
@@ -82,6 +104,7 @@ def test_schema_uses_planned_columns(temp_db_url):
         "renewal_date",
         "notes",
     ]
+    assert _columns_by_name(db, "manual_items")["start_date"]["notnull"] == 0
 
 
 def test_daily_costs_excludes_month_granularity(temp_db_url):
@@ -188,6 +211,10 @@ def test_finish_sync_run_rejects_nonexistent_run(temp_db_url):
 
 def _column_names(db: Database, table_name: str) -> list[str]:
     return [row["name"] for row in db.query_all(f"PRAGMA table_info({table_name})")]
+
+
+def _columns_by_name(db: Database, table_name: str) -> dict[str, dict[str, object]]:
+    return {row["name"]: row for row in db.query_all(f"PRAGMA table_info({table_name})")}
 
 
 def _snapshot(

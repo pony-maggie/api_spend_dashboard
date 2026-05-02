@@ -33,8 +33,8 @@ class Database:
                 CREATE TABLE IF NOT EXISTS providers (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
-                    enabled INTEGER NOT NULL DEFAULT 1,
-                    status TEXT NOT NULL DEFAULT 'unknown',
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'disabled',
                     last_sync_at TEXT,
                     last_success_at TEXT,
                     last_error TEXT,
@@ -75,9 +75,8 @@ class Database:
                     quota_limit INTEGER,
                     quota_remaining INTEGER,
                     quota_reset_at TEXT,
-                    raw_summary TEXT NOT NULL,
+                    raw_summary_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
                     UNIQUE (provider_id, period_start, period_end, granularity),
                     CHECK (length(trim(provider_id)) > 0),
                     CHECK (period_end > period_start),
@@ -99,7 +98,7 @@ class Database:
                     amount REAL NOT NULL,
                     currency TEXT NOT NULL,
                     billing_period TEXT NOT NULL,
-                    start_date TEXT NOT NULL,
+                    start_date TEXT,
                     end_date TEXT,
                     renewal_date TEXT,
                     notes TEXT,
@@ -180,7 +179,6 @@ class Database:
             self._optional_dt_to_iso(snapshot.quota_reset_at),
             json.dumps(snapshot.raw_summary, sort_keys=True),
             now,
-            now,
         )
         with self.connect() as conn:
             conn.execute(
@@ -199,11 +197,10 @@ class Database:
                     quota_limit,
                     quota_remaining,
                     quota_reset_at,
-                    raw_summary,
-                    created_at,
-                    updated_at
+                    raw_summary_json,
+                    created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(provider_id, period_start, period_end, granularity)
                 DO UPDATE SET
                     currency = excluded.currency,
@@ -215,8 +212,7 @@ class Database:
                     quota_limit = excluded.quota_limit,
                     quota_remaining = excluded.quota_remaining,
                     quota_reset_at = excluded.quota_reset_at,
-                    raw_summary = excluded.raw_summary,
-                    updated_at = excluded.updated_at
+                    raw_summary_json = excluded.raw_summary_json
                 """,
                 values,
             )
