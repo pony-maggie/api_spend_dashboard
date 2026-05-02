@@ -11,6 +11,10 @@ from api_spend_dashboard.models import UsageSnapshot
 
 
 class Database:
+    PROVIDER_STATUSES = {"unknown", "configured", "missing_config", "disabled", "error"}
+    SYNC_RUN_STATUSES = {"running", "succeeded", "failed"}
+    SNAPSHOT_GRANULARITIES = {"day", "month"}
+
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
         self.path = self._sqlite_path(database_url)
@@ -28,8 +32,18 @@ class Database:
                 """
                 CREATE TABLE IF NOT EXISTS providers (
                     id TEXT PRIMARY KEY,
-                    display_name TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    name TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'unknown',
+                    last_sync_at TEXT,
+                    last_success_at TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    CHECK (length(trim(id)) > 0),
+                    CHECK (length(trim(name)) > 0),
+                    CHECK (enabled IN (0, 1)),
+                    CHECK (status IN ('unknown', 'configured', 'missing_config', 'disabled', 'error'))
                 );
 
                 CREATE TABLE IF NOT EXISTS sync_runs (
@@ -39,7 +53,11 @@ class Database:
                     finished_at TEXT,
                     status TEXT NOT NULL,
                     error_type TEXT,
-                    error_message TEXT
+                    error_message TEXT,
+                    snapshots_written INTEGER NOT NULL DEFAULT 0,
+                    CHECK (length(trim(provider_id)) > 0),
+                    CHECK (status IN ('running', 'succeeded', 'failed')),
+                    CHECK (snapshots_written >= 0)
                 );
 
                 CREATE TABLE IF NOT EXISTS usage_snapshots (
@@ -60,19 +78,38 @@ class Database:
                     raw_summary TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    UNIQUE (provider_id, period_start, period_end, granularity)
+                    UNIQUE (provider_id, period_start, period_end, granularity),
+                    CHECK (length(trim(provider_id)) > 0),
+                    CHECK (period_end > period_start),
+                    CHECK (granularity IN ('day', 'month')),
+                    CHECK (length(trim(currency)) > 0),
+                    CHECK (cost_amount IS NULL OR cost_amount >= 0),
+                    CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                    CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                    CHECK (total_tokens IS NULL OR total_tokens >= 0),
+                    CHECK (requests IS NULL OR requests >= 0),
+                    CHECK (quota_limit IS NULL OR quota_limit >= 0),
+                    CHECK (quota_remaining IS NULL OR quota_remaining >= 0)
                 );
 
                 CREATE TABLE IF NOT EXISTS manual_items (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     provider_id TEXT NOT NULL REFERENCES providers(id),
-                    label TEXT NOT NULL,
+                    name TEXT NOT NULL,
                     amount REAL NOT NULL,
                     currency TEXT NOT NULL,
-                    period_start TEXT NOT NULL,
-                    period_end TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    billing_period TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT,
+                    renewal_date TEXT,
+                    notes TEXT,
+                    CHECK (length(trim(provider_id)) > 0),
+                    CHECK (length(trim(name)) > 0),
+                    CHECK (amount >= 0),
+                    CHECK (length(trim(currency)) > 0),
+                    CHECK (
+                        billing_period IN ('daily', 'weekly', 'monthly', 'annual', 'yearly', 'one_time')
+                    )
                 );
 
                 CREATE TABLE IF NOT EXISTS settings (
@@ -83,19 +120,48 @@ class Database:
                 """
             )
 
-    def ensure_provider(self, provider_id: str, display_name: str | None = None) -> None:
+    def ensure_provider(
+        self,
+        provider_id: str,
+        name: str | None = None,
+        *,
+        enabled: bool | None = None,
+        status: str | None = None,
+    ) -> None:
+        if not provider_id.strip():
+            raise ValueError("provider_id must be non-empty")
+        if name is not None and not name.strip():
+            raise ValueError("provider name must be non-empty")
+        if status is not None and status not in self.PROVIDER_STATUSES:
+            raise ValueError(f"provider status must be one of {sorted(self.PROVIDER_STATUSES)}")
+
         now = self._dt_to_iso(datetime.now(UTC))
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO providers (id, display_name, created_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(id) DO NOTHING
+                INSERT INTO providers (id, name, enabled, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = CASE WHEN ? THEN excluded.name ELSE providers.name END,
+                    enabled = COALESCE(?, providers.enabled),
+                    status = COALESCE(?, providers.status),
+                    updated_at = excluded.updated_at
                 """,
-                (provider_id, display_name or provider_id, now),
+                (
+                    provider_id,
+                    name or provider_id,
+                    int(enabled) if enabled is not None else 1,
+                    status or "unknown",
+                    now,
+                    now,
+                    name is not None,
+                    int(enabled) if enabled is not None else None,
+                    status,
+                ),
             )
 
     def upsert_snapshot(self, snapshot: UsageSnapshot) -> None:
+        self._validate_snapshot(snapshot)
         self.ensure_provider(snapshot.provider_id)
         now = self._dt_to_iso(datetime.now(UTC))
         values = (
@@ -174,22 +240,65 @@ class Database:
         status: str,
         error_type: str | None = None,
         error_message: str | None = None,
+        snapshots_written: int = 0,
     ) -> None:
+        if status not in self.SYNC_RUN_STATUSES - {"running"}:
+            raise ValueError("finished sync run status must be 'succeeded' or 'failed'")
+        if snapshots_written < 0:
+            raise ValueError("snapshots_written must be non-negative")
+
+        finished_at = self._dt_to_iso(datetime.now(UTC))
         with self.connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 UPDATE sync_runs
-                SET finished_at = ?, status = ?, error_type = ?, error_message = ?
+                SET
+                    finished_at = ?,
+                    status = ?,
+                    error_type = ?,
+                    error_message = ?,
+                    snapshots_written = ?
                 WHERE id = ?
                 """,
                 (
-                    self._dt_to_iso(datetime.now(UTC)),
+                    finished_at,
                     status,
                     error_type,
                     error_message,
+                    snapshots_written,
                     run_id,
                 ),
             )
+            if cursor.rowcount == 0:
+                raise ValueError(f"No sync run found for id {run_id}")
+
+            if status == "succeeded":
+                conn.execute(
+                    """
+                    UPDATE providers
+                    SET
+                        last_sync_at = ?,
+                        last_success_at = ?,
+                        last_error = NULL,
+                        status = 'configured',
+                        updated_at = ?
+                    WHERE id = (SELECT provider_id FROM sync_runs WHERE id = ?)
+                    """,
+                    (finished_at, finished_at, finished_at, run_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE providers
+                    SET
+                        last_sync_at = ?,
+                        last_error = ?,
+                        status = 'error',
+                        updated_at = ?
+                    WHERE id = (SELECT provider_id FROM sync_runs WHERE id = ?)
+                    """,
+                    (finished_at, error_message, finished_at, run_id),
+                )
 
     def recent_sync_runs(self, provider_id: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
         params: list[Any] = []
@@ -231,8 +340,42 @@ class Database:
             return None
         return cls._dt_to_iso(value)
 
+    def _validate_snapshot(self, snapshot: UsageSnapshot) -> None:
+        if not snapshot.provider_id.strip():
+            raise ValueError("provider_id must be non-empty")
+        if not snapshot.currency.strip():
+            raise ValueError("currency must be non-empty")
+        if snapshot.granularity not in self.SNAPSHOT_GRANULARITIES:
+            raise ValueError(f"granularity must be one of {sorted(self.SNAPSHOT_GRANULARITIES)}")
+
+        period_start = self._require_aware_datetime("period_start", snapshot.period_start)
+        period_end = self._require_aware_datetime("period_end", snapshot.period_end)
+        self._optional_dt_to_iso(snapshot.quota_reset_at)
+
+        if period_end <= period_start:
+            raise ValueError("period_end must be after period_start")
+
+        numeric_fields = {
+            "cost_amount": snapshot.cost_amount,
+            "input_tokens": snapshot.input_tokens,
+            "output_tokens": snapshot.output_tokens,
+            "total_tokens": snapshot.total_tokens,
+            "requests": snapshot.requests,
+            "quota_limit": snapshot.quota_limit,
+            "quota_remaining": snapshot.quota_remaining,
+        }
+        for field_name, value in numeric_fields.items():
+            if value is not None and value < 0:
+                raise ValueError(f"{field_name} must be non-negative")
+
+    @classmethod
+    def _require_aware_datetime(cls, field_name: str, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(f"{field_name} must be timezone-aware")
+        return value.astimezone(UTC)
+
     @staticmethod
     def _dt_to_iso(value: datetime) -> str:
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=UTC)
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("datetimes must be timezone-aware")
         return value.astimezone(UTC).isoformat()

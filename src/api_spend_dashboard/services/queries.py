@@ -46,7 +46,7 @@ class DashboardQueries:
                 provider_id,
                 COALESCE(SUM(cost_amount), 0) AS cost
             FROM usage_snapshots
-            WHERE period_start >= ?
+            WHERE period_start >= ? AND granularity = 'day'
             GROUP BY date(period_start), provider_id
             ORDER BY date(period_start), provider_id
             """,
