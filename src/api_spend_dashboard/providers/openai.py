@@ -25,7 +25,12 @@ class OpenAIConnector:
         if self.settings.openai_org_id.strip():
             headers["OpenAI-Organization"] = self.settings.openai_org_id.strip()
 
-        params = {"start_time": start_time, "end_time": end_time, "bucket_width": "1d"}
+        params = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "bucket_width": "1d",
+            "limit": 31,
+        }
         async with httpx.AsyncClient(timeout=self.settings.http_timeout_seconds) as client:
             costs = await client.get(
                 "https://api.openai.com/v1/organization/costs",
@@ -46,8 +51,10 @@ class OpenAIConnector:
                     "provider_error", f"OpenAI returned HTTP {response.status_code}"
                 )
 
-        usage_by_start = _usage_by_start(usage.json())
-        snapshots = _cost_snapshots(costs.json(), usage_by_start, self.settings.default_currency)
+        usage_payload = _json_dict(usage, "OpenAI usage response must be a JSON object")
+        costs_payload = _json_dict(costs, "OpenAI costs response must be a JSON object")
+        usage_by_start = _usage_by_start(usage_payload)
+        snapshots = _cost_snapshots(costs_payload, usage_by_start, self.settings.default_currency)
         if not snapshots:
             snapshots.append(_empty_month_snapshot(start, now_utc, self.settings.default_currency))
         return SyncResult(self.provider_id, snapshots, "OpenAI usage and costs synced")
@@ -57,15 +64,26 @@ def _cost_snapshots(
     payload: dict[str, Any], usage_by_start: dict[int, dict[str, int]], default_currency: str
 ) -> list[UsageSnapshot]:
     snapshots: list[UsageSnapshot] = []
-    for bucket in payload.get("data", []):
-        bucket_start_ts = int(bucket["start_time"])
+    data = _data_list(payload, "OpenAI costs data must be a list")
+    for bucket in data:
+        if not isinstance(bucket, dict):
+            raise ProviderSyncError("parse_error", "OpenAI costs bucket must be a JSON object")
+        bucket_start_ts = _bucket_timestamp(bucket, "start_time", "OpenAI costs")
+        bucket_end_ts = _bucket_timestamp(bucket, "end_time", "OpenAI costs")
         bucket_start = datetime.fromtimestamp(bucket_start_ts, tz=UTC)
-        bucket_end = datetime.fromtimestamp(int(bucket["end_time"]), tz=UTC)
+        bucket_end = datetime.fromtimestamp(bucket_end_ts, tz=UTC)
         amount = 0.0
         currency = _currency(default_currency)
-        for result in bucket.get("results", []):
+        results = bucket.get("results", [])
+        if not isinstance(results, list):
+            raise ProviderSyncError("parse_error", "OpenAI costs bucket results must be a list")
+        for result in results:
+            if not isinstance(result, dict):
+                raise ProviderSyncError("parse_error", "OpenAI costs result must be a JSON object")
             amount_payload = result.get("amount", {})
-            amount += max(float(amount_payload.get("value") or 0), 0.0)
+            if not isinstance(amount_payload, dict):
+                raise ProviderSyncError("parse_error", "OpenAI amount must be a JSON object")
+            amount += _non_negative_float(amount_payload.get("value"))
             currency = _currency(str(amount_payload.get("currency") or currency))
 
         usage_bucket = usage_by_start.get(bucket_start_ts, {})
@@ -98,13 +116,22 @@ def _cost_snapshots(
 
 def _usage_by_start(payload: dict[str, Any]) -> dict[int, dict[str, int]]:
     by_start: dict[int, dict[str, int]] = {}
-    for bucket in payload.get("data", []):
+    data = _data_list(payload, "OpenAI usage data must be a list")
+    for bucket in data:
+        if not isinstance(bucket, dict):
+            raise ProviderSyncError("parse_error", "OpenAI usage bucket must be a JSON object")
+        bucket_start_ts = _bucket_timestamp(bucket, "start_time", "OpenAI usage")
         aggregate = {"input_tokens": 0, "output_tokens": 0, "num_model_requests": 0}
-        for result in bucket.get("results", []):
+        results = bucket.get("results", [])
+        if not isinstance(results, list):
+            raise ProviderSyncError("parse_error", "OpenAI usage bucket results must be a list")
+        for result in results:
+            if not isinstance(result, dict):
+                raise ProviderSyncError("parse_error", "OpenAI usage result must be a JSON object")
             aggregate["input_tokens"] += _non_negative_int(result.get("input_tokens"))
             aggregate["output_tokens"] += _non_negative_int(result.get("output_tokens"))
             aggregate["num_model_requests"] += _non_negative_int(result.get("num_model_requests"))
-        by_start[int(bucket["start_time"])] = aggregate
+        by_start[bucket_start_ts] = aggregate
     return by_start
 
 
@@ -129,7 +156,17 @@ def _empty_month_snapshot(start: datetime, now_utc: datetime, default_currency: 
 
 
 def _non_negative_int(value: Any) -> int:
-    return max(int(value or 0), 0)
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError) as exc:
+        raise ProviderSyncError("parse_error", "OpenAI usage value was not an integer") from exc
+
+
+def _non_negative_float(value: Any) -> float:
+    try:
+        return max(float(value or 0), 0.0)
+    except (TypeError, ValueError) as exc:
+        raise ProviderSyncError("parse_error", "OpenAI cost amount was not numeric") from exc
 
 
 def _currency(value: str) -> str:
@@ -137,3 +174,29 @@ def _currency(value: str) -> str:
     if not currency:
         raise ProviderSyncError("missing_config", "currency must be non-empty")
     return currency
+
+
+def _json_dict(response: httpx.Response, message: str) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderSyncError("parse_error", "OpenAI response was not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ProviderSyncError("parse_error", message)
+    return payload
+
+
+def _data_list(payload: dict[str, Any], message: str) -> list[Any]:
+    data = payload.get("data", [])
+    if not isinstance(data, list):
+        raise ProviderSyncError("parse_error", message)
+    return data
+
+
+def _bucket_timestamp(bucket: dict[str, Any], field_name: str, label: str) -> int:
+    try:
+        return int(bucket[field_name])
+    except KeyError as exc:
+        raise ProviderSyncError("parse_error", f"{label} bucket missing {field_name}") from exc
+    except (TypeError, ValueError) as exc:
+        raise ProviderSyncError("parse_error", f"{label} bucket {field_name} was malformed") from exc

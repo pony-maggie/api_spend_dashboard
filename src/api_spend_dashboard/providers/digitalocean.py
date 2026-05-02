@@ -30,7 +30,7 @@ class DigitalOceanConnector:
                 "provider_error", f"DigitalOcean returned HTTP {response.status_code}"
             )
 
-        payload = response.json()
+        payload = _json_dict(response)
         start, end = _month_bounds(now)
         amount = _non_negative_float(
             payload.get("month_to_date_usage") or payload.get("month_to_date_balance") or 0
@@ -59,4 +59,17 @@ class DigitalOceanConnector:
 
 
 def _non_negative_float(value: Any) -> float:
-    return max(float(value), 0.0)
+    try:
+        return max(float(value), 0.0)
+    except (TypeError, ValueError) as exc:
+        raise ProviderSyncError("parse_error", "DigitalOcean balance amount was not numeric") from exc
+
+
+def _json_dict(response: httpx.Response) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderSyncError("parse_error", "DigitalOcean response was not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ProviderSyncError("parse_error", "DigitalOcean response must be a JSON object")
+    return payload

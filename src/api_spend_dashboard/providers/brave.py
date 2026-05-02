@@ -30,13 +30,18 @@ class BraveConnector:
         if response.status_code >= 400:
             raise ProviderSyncError("provider_error", f"Brave returned HTTP {response.status_code}")
 
+        _json_dict(response, "Brave response must be a JSON object")
         limits = _csv_int_header(response.headers.get("X-RateLimit-Limit", ""))
         remaining_values = _csv_int_header(response.headers.get("X-RateLimit-Remaining", ""))
         reset_values = _csv_int_header(response.headers.get("X-RateLimit-Reset", ""))
         monthly_limit = limits[-1] if limits else None
         monthly_remaining = remaining_values[-1] if remaining_values else None
         used = _used_requests(monthly_limit, monthly_remaining)
-        price_per_1000 = max(float(self.settings.brave_price_per_1000_requests), 0)
+        price_per_1000 = float(self.settings.brave_price_per_1000_requests)
+        if price_per_1000 < 0:
+            raise ProviderSyncError(
+                "missing_config", "BRAVE_PRICE_PER_1000_REQUESTS must be non-negative"
+            )
         cost = used * price_per_1000 / 1000 if used is not None else None
         reset_at = None
         if reset_values:
@@ -73,7 +78,10 @@ def _csv_int_header(value: str) -> list[int]:
         part = part.strip()
         if not part:
             continue
-        numbers.append(max(int(part), 0))
+        try:
+            numbers.append(max(int(part), 0))
+        except ValueError as exc:
+            raise ProviderSyncError("parse_error", "Brave rate limit headers were malformed") from exc
     return numbers
 
 
@@ -88,3 +96,13 @@ def _currency(value: str, setting_name: str) -> str:
     if not currency:
         raise ProviderSyncError("missing_config", f"{setting_name} must be non-empty")
     return currency
+
+
+def _json_dict(response: httpx.Response, message: str) -> dict:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderSyncError("parse_error", "Brave response was not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ProviderSyncError("parse_error", message)
+    return payload

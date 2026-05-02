@@ -35,14 +35,19 @@ class MiniMaxConnector:
                 "provider_error", f"MiniMax returned HTTP {response.status_code}"
             )
 
-        payload = response.json()
+        payload = _json_dict(response)
+        _raise_for_base_resp(payload)
         quota_payload = _quota_payload(payload)
+        if not isinstance(quota_payload, dict):
+            raise ProviderSyncError("parse_error", "MiniMax quota payload must be a JSON object")
         limit = _first_non_negative_int(
             quota_payload, ["limit", "total", "quota", "max", "quota_limit", "total_quota"]
         )
         remaining = _first_non_negative_int(
             quota_payload, ["remaining", "remain", "available", "quota_remaining", "balance"]
         )
+        if limit is None and remaining is None:
+            raise ProviderSyncError("parse_error", "MiniMax quota payload did not include quota fields")
         reset_at = _reset_at(quota_payload, now)
         currency = _currency(self.settings.minimax_plan_currency, "MINIMAX_PLAN_CURRENCY")
         cost = _non_negative_float(
@@ -79,8 +84,6 @@ class MiniMaxConnector:
 
 
 def _quota_payload(payload: Any) -> Any:
-    if not isinstance(payload, dict):
-        return payload
     data = payload.get("data", payload)
     if not isinstance(data, dict):
         return data
@@ -130,3 +133,31 @@ def _non_negative_float(value: float, message: str) -> float:
     if amount < 0:
         raise ProviderSyncError("missing_config", message)
     return amount
+
+
+def _json_dict(response: httpx.Response) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderSyncError("parse_error", "MiniMax response was not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ProviderSyncError("parse_error", "MiniMax response must be a JSON object")
+    return payload
+
+
+def _raise_for_base_resp(payload: dict[str, Any]) -> None:
+    base_resp = payload.get("base_resp")
+    if base_resp is None:
+        return
+    if not isinstance(base_resp, dict):
+        raise ProviderSyncError("parse_error", "MiniMax base_resp must be a JSON object")
+    status_code = base_resp.get("status_code", 0)
+    try:
+        parsed_status = int(status_code)
+    except (TypeError, ValueError) as exc:
+        raise ProviderSyncError("parse_error", "MiniMax base_resp.status_code was malformed") from exc
+    if parsed_status != 0:
+        status_msg = str(base_resp.get("status_msg") or base_resp.get("message") or "unknown error")
+        raise ProviderSyncError(
+            "provider_error", f"MiniMax base_resp status {parsed_status}: {status_msg}"
+        )
