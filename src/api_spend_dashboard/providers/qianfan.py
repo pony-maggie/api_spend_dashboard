@@ -146,6 +146,10 @@ def _aggregate_metrics(payload: dict[str, Any]) -> dict[str, int]:
 
 
 def _metrics_list(payload: dict[str, Any]) -> list[Any]:
+    nested_metrics = _service_app_metrics(payload)
+    if nested_metrics is not None:
+        return nested_metrics
+
     candidates = [
         payload.get("metrics"),
         payload.get("metric"),
@@ -174,6 +178,32 @@ def _metrics_list(payload: dict[str, Any]) -> list[Any]:
             raise ProviderSyncError("parse_error", "Qianfan metrics payload must be a list")
         return candidate
     raise ProviderSyncError("parse_error", "Qianfan response did not include metrics")
+
+
+def _service_app_metrics(payload: dict[str, Any]) -> list[Any] | None:
+    result = payload.get("result")
+    if not isinstance(result, dict) or "serviceList" not in result:
+        return None
+
+    service_list = result["serviceList"]
+    if not isinstance(service_list, list):
+        raise ProviderSyncError("parse_error", "Qianfan serviceList must be a list")
+
+    metrics: list[Any] = []
+    for service in service_list:
+        if not isinstance(service, dict):
+            raise ProviderSyncError("parse_error", "Qianfan service must be a JSON object")
+        app_list = service.get("appList", [])
+        if not isinstance(app_list, list):
+            raise ProviderSyncError("parse_error", "Qianfan appList must be a list")
+        for app in app_list:
+            if not isinstance(app, dict):
+                raise ProviderSyncError("parse_error", "Qianfan app must be a JSON object")
+            metric = app.get("metric")
+            if not isinstance(metric, dict):
+                raise ProviderSyncError("parse_error", "Qianfan app metric must be a JSON object")
+            metrics.append(metric)
+    return metrics
 
 
 def _json_dict(response: httpx.Response) -> dict[str, Any]:

@@ -72,20 +72,32 @@ async def test_qianfan_metric_snapshot(temp_db_url):
             200,
             json={
                 "result": {
-                    "metrics": [
+                    "serviceList": [
                         {
                             "serviceId": "svc-1",
-                            "appId": "app-1",
-                            "inputTokensTotal": 10,
-                            "outputTokensTotal": 4,
-                            "requestTotal": 2,
+                            "appList": [
+                                {
+                                    "appId": "app-1",
+                                    "metric": {
+                                        "inputTokensTotal": 10,
+                                        "outputTokensTotal": 4,
+                                        "requestTotal": 2,
+                                    },
+                                }
+                            ],
                         },
                         {
                             "serviceId": "svc-2",
-                            "appId": "app-1",
-                            "inputTokensTotal": "7",
-                            "outputTokensTotal": "8",
-                            "requestTotal": "3",
+                            "appList": [
+                                {
+                                    "appId": "app-1",
+                                    "metric": {
+                                        "inputTokensTotal": "7",
+                                        "outputTokensTotal": "8",
+                                        "requestTotal": "3",
+                                    },
+                                }
+                            ],
                         },
                     ]
                 }
