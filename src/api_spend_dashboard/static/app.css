@@ -208,6 +208,24 @@ main {
   height: 300px;
 }
 
+.chart-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  padding: 20px;
+  text-align: center;
+}
+
+.chart-state:empty {
+  display: none;
+}
+
 .providers-section {
   min-width: 0;
   padding: 16px;

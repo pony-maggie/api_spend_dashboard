@@ -33,7 +33,10 @@
               <span>Last 30 days</span>
             </div>
             <div class="chart-frame">
-              <canvas id="trend-chart"></canvas>
+              <canvas id="trend-chart" aria-label="Daily spend by provider" role="img">
+                Daily spend chart unavailable.
+              </canvas>
+              <p id="trend-chart-state" class="chart-state" aria-live="polite"></p>
             </div>
           </article>
 
@@ -43,7 +46,10 @@
               <span>Daily spend mix</span>
             </div>
             <div class="chart-frame chart-frame--compact">
-              <canvas id="share-chart"></canvas>
+              <canvas id="share-chart" aria-label="Provider share of daily spend" role="img">
+                Provider share chart unavailable.
+              </canvas>
+              <p id="share-chart-state" class="chart-state" aria-live="polite"></p>
             </div>
           </article>
         </section>

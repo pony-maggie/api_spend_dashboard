@@ -39,6 +39,13 @@ function setStatus(message, state = "") {
   status.className = state ? `is-${state}` : "";
 }
 
+function setChartState(chartId, message) {
+  const state = document.querySelector(`#${chartId}-state`);
+  if (state) {
+    state.textContent = message;
+  }
+}
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
@@ -153,16 +160,32 @@ function renderCharts(summaryData) {
   const dailyCosts = summaryData.daily_costs || [];
   const trendContext = document.querySelector("#trend-chart");
   const shareContext = document.querySelector("#share-chart");
+  const chartUnavailableMessage = "Charts unavailable because Chart.js did not load.";
 
   if (trendChart) {
     trendChart.destroy();
+    trendChart = null;
   }
   if (shareChart) {
     shareChart.destroy();
+    shareChart = null;
   }
 
+  if (!window.Chart) {
+    setChartState("trend-chart", chartUnavailableMessage);
+    setChartState("share-chart", chartUnavailableMessage);
+    return;
+  }
+
+  if (!dailyCosts.length) {
+    setChartState("trend-chart", "No daily spend rows yet.");
+    setChartState("share-chart", "No provider spend to chart yet.");
+    return;
+  }
+
+  setChartState("trend-chart", "");
   const trendData = buildDailyDatasets(dailyCosts);
-  trendChart = new Chart(trendContext, {
+  trendChart = new window.Chart(trendContext, {
     type: "line",
     data: trendData,
     options: {
@@ -191,7 +214,13 @@ function renderCharts(summaryData) {
   });
 
   const providerTotals = buildProviderTotals(dailyCosts);
-  shareChart = new Chart(shareContext, {
+  if (!providerTotals.length) {
+    setChartState("share-chart", "No provider spend to chart yet.");
+    return;
+  }
+
+  setChartState("share-chart", "");
+  shareChart = new window.Chart(shareContext, {
     type: "doughnut",
     data: {
       labels: providerTotals.map((provider) => provider.name),
@@ -222,8 +251,44 @@ function renderCharts(summaryData) {
   });
 }
 
-async function loadDashboard() {
-  setStatus("Loading dashboard...");
+function summarizeSyncResult(result) {
+  if (result.sync?.status === "already_running") {
+    return { message: "Sync is already running.", state: "error" };
+  }
+
+  const providerResults = result.providers || {};
+  const providerErrors = Object.entries(providerResults)
+    .filter(([, providerResult]) => {
+      return (
+        providerResult.status === "failed" ||
+        providerResult.status === "unknown_error" ||
+        Boolean(providerResult.error_type || providerResult.error_message || providerResult.error)
+      );
+    })
+    .map(([providerId]) => providerId);
+
+  if (providerErrors.length) {
+    return {
+      message: `Sync completed with ${providerErrors.length} provider error(s): ${providerErrors.join(", ")}`,
+      state: "error",
+    };
+  }
+
+  const providerCount = Object.keys(providerResults).length;
+  if (!providerCount) {
+    return { message: "Sync completed; no configured providers ran.", state: "ok" };
+  }
+
+  return {
+    message: `Sync completed for ${providerCount} provider(s).`,
+    state: "ok",
+  };
+}
+
+async function loadDashboard(statusOverride = null) {
+  if (!statusOverride) {
+    setStatus("Loading dashboard...");
+  }
 
   try {
     const [summaryData, configStatus] = await Promise.all([
@@ -234,9 +299,17 @@ async function loadDashboard() {
     renderSummaryCards(summaryData);
     renderProviders(configStatus);
     renderCharts(summaryData);
-    setStatus("Dashboard loaded", "ok");
+    if (statusOverride) {
+      setStatus(statusOverride.message, statusOverride.state);
+    } else {
+      setStatus("Dashboard loaded", "ok");
+    }
   } catch (error) {
-    setStatus(`Load failed: ${error.message}`, "error");
+    if (statusOverride) {
+      setStatus(`${statusOverride.message}; dashboard refresh failed: ${error.message}`, "error");
+    } else {
+      setStatus(`Load failed: ${error.message}`, "error");
+    }
   }
 }
 
@@ -247,12 +320,13 @@ async function syncNow() {
 
   try {
     const result = await fetchJson("/api/sync", { method: "POST" });
+    const syncStatus = summarizeSyncResult(result);
     if (result.sync?.status === "already_running") {
-      setStatus("Sync is already running", "error");
+      setStatus(syncStatus.message, syncStatus.state);
       return;
     }
 
-    await loadDashboard();
+    await loadDashboard(syncStatus);
   } catch (error) {
     setStatus(`Sync failed: ${error.message}`, "error");
   } finally {
