@@ -62,7 +62,10 @@ class Settings(BaseSettings):
     def provider_config_status(self) -> dict[str, dict[str, Any]]:
         requirements = {
             "openai": (self.openai_enabled, {"OPENAI_ADMIN_API_KEY": self.openai_admin_api_key}),
-            "chatgpt_pro": (self.chatgpt_pro_enabled, {}),
+            "chatgpt_pro": (
+                self.chatgpt_pro_enabled,
+                {"CHATGPT_PRO_PRICE": self.chatgpt_pro_price if self.chatgpt_pro_price > 0 else ""},
+            ),
             "minimax": (self.minimax_enabled, {"MINIMAX_API_KEY": self.minimax_api_key}),
             "gemini": (
                 self.gemini_enabled,
