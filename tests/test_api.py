@@ -47,6 +47,20 @@ def test_dashboard_route_loads(temp_db_url):
     assert "API Spend Dashboard" in response.text
 
 
+def test_dashboard_contains_core_regions(temp_db_url):
+    from api_spend_dashboard.main import create_app
+
+    app = create_app(Settings(database_url=temp_db_url), start_scheduler=False)
+
+    with TestClient(app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="summary-cards"' in response.text
+    assert 'id="trend-chart"' in response.text
+    assert 'id="provider-grid"' in response.text
+
+
 def test_scheduler_opt_out_does_not_start_background_sync(temp_db_url):
     from api_spend_dashboard.db import Database
     from api_spend_dashboard.main import create_app

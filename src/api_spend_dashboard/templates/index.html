@@ -9,9 +9,55 @@
     <script src="/static/app.js" defer></script>
   </head>
   <body>
-    <main>
-      <h1>API Spend Dashboard</h1>
-      <p>Local API spend monitoring is starting up.</p>
-    </main>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>API Spend Dashboard</h1>
+          <p id="sync-status" role="status" aria-live="polite">Loading dashboard...</p>
+        </div>
+        <button id="sync-now" type="button">Sync now</button>
+      </header>
+
+      <main>
+        <section id="summary-cards" class="summary-grid" aria-label="Monthly summary">
+          <article class="metric-card skeleton"></article>
+          <article class="metric-card skeleton"></article>
+          <article class="metric-card skeleton"></article>
+          <article class="metric-card skeleton"></article>
+        </section>
+
+        <section class="chart-grid" aria-label="Spend charts">
+          <article class="panel">
+            <div class="panel-heading">
+              <h2>Daily Spend</h2>
+              <span>Last 30 days</span>
+            </div>
+            <div class="chart-frame">
+              <canvas id="trend-chart"></canvas>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <h2>Provider Share</h2>
+              <span>Daily spend mix</span>
+            </div>
+            <div class="chart-frame chart-frame--compact">
+              <canvas id="share-chart"></canvas>
+            </div>
+          </article>
+        </section>
+
+        <section class="providers-section" aria-labelledby="providers-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="providers-title">Providers</h2>
+              <p id="config-hint">Configuration status across tracked services.</p>
+            </div>
+          </div>
+          <div id="provider-grid" class="provider-grid"></div>
+        </section>
+      </main>
+    </div>
   </body>
 </html>
