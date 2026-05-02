@@ -19,15 +19,41 @@ class DashboardQueries:
 
         rows = self.db.query_all(
             """
+            WITH providers_with_daily AS (
+                SELECT DISTINCT provider_id
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND granularity = 'day'
+            ),
+            selected_snapshots AS (
+                SELECT *
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND (
+                        granularity = 'day'
+                        OR (
+                            granularity = 'month'
+                            AND provider_id NOT IN (SELECT provider_id FROM providers_with_daily)
+                        )
+                    )
+            )
             SELECT
                 COALESCE(SUM(cost_amount), 0) AS total_cost,
                 COALESCE(SUM(total_tokens), 0) AS total_tokens,
                 COALESCE(SUM(requests), 0) AS total_requests,
                 COUNT(DISTINCT provider_id) AS provider_count
-            FROM usage_snapshots
-            WHERE period_start >= ? AND period_start < ?
+            FROM selected_snapshots
             """,
-            (self._dt_to_iso(start), self._dt_to_iso(end)),
+            (
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+            ),
         )
         row = rows[0]
         return {
@@ -38,7 +64,7 @@ class DashboardQueries:
         }
 
     def daily_costs(self, days: int = 30) -> list[dict[str, Any]]:
-        start = datetime.now(UTC) - timedelta(days=days)
+        start_date = datetime.now(UTC).date() - timedelta(days=days)
         return self.db.query_all(
             """
             SELECT
@@ -46,11 +72,11 @@ class DashboardQueries:
                 provider_id,
                 COALESCE(SUM(cost_amount), 0) AS cost
             FROM usage_snapshots
-            WHERE period_start >= ? AND granularity = 'day'
+            WHERE date(period_start) >= ? AND granularity = 'day'
             GROUP BY date(period_start), provider_id
             ORDER BY date(period_start), provider_id
             """,
-            (self._dt_to_iso(start),),
+            (start_date.isoformat(),),
         )
 
     @staticmethod

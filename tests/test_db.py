@@ -136,6 +136,106 @@ def test_daily_costs_excludes_month_granularity(temp_db_url):
     ]
 
 
+def test_month_summary_prefers_day_rows_when_provider_has_day_and_month(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="openai",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 5, 2, tzinfo=UTC),
+            granularity="day",
+            cost_amount=5.0,
+            total_tokens=100,
+            requests=2,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="openai",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            cost_amount=99.0,
+            total_tokens=999,
+            requests=99,
+        )
+    )
+
+    summary = DashboardQueries(db).month_summary(2026, 5)
+
+    assert summary["total_cost"] == 5.0
+    assert summary["total_tokens"] == 100
+    assert summary["total_requests"] == 2
+    assert summary["provider_count"] == 1
+
+
+def test_month_summary_includes_month_only_provider(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="openai",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 5, 2, tzinfo=UTC),
+            granularity="day",
+            cost_amount=5.0,
+            total_tokens=100,
+            requests=2,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="chatgpt_pro",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            cost_amount=20.0,
+            total_tokens=None,
+            requests=None,
+        )
+    )
+
+    summary = DashboardQueries(db).month_summary(2026, 5)
+
+    assert summary["total_cost"] == 25.0
+    assert summary["total_tokens"] == 100
+    assert summary["total_requests"] == 2
+    assert summary["provider_count"] == 2
+
+
+def test_daily_costs_uses_calendar_date_cutoff(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+    today = datetime.now(UTC).date()
+    cutoff_date = today - timedelta(days=30)
+
+    db.upsert_snapshot(
+        _snapshot(
+            period_start=datetime.combine(cutoff_date, datetime.min.time(), tzinfo=UTC),
+            period_end=datetime.combine(cutoff_date + timedelta(days=1), datetime.min.time(), tzinfo=UTC),
+            granularity="day",
+            cost_amount=7.0,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            period_start=datetime.combine(cutoff_date - timedelta(days=1), datetime.min.time(), tzinfo=UTC),
+            period_end=datetime.combine(cutoff_date, datetime.min.time(), tzinfo=UTC),
+            granularity="day",
+            cost_amount=8.0,
+        )
+    )
+
+    rows = DashboardQueries(db).daily_costs(days=30)
+
+    assert rows == [
+        {"date": cutoff_date.isoformat(), "provider_id": "openai", "cost": 7.0}
+    ]
+
+
 def test_snapshot_upsert_replaces_existing_row(temp_db_url):
     db = Database(temp_db_url)
     db.migrate()

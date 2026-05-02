@@ -177,7 +177,7 @@ class Database:
             snapshot.quota_limit,
             snapshot.quota_remaining,
             self._optional_dt_to_iso(snapshot.quota_reset_at),
-            json.dumps(snapshot.raw_summary, sort_keys=True),
+            json.dumps(snapshot.raw_summary, sort_keys=True, allow_nan=False),
             now,
         )
         with self.connect() as conn:
