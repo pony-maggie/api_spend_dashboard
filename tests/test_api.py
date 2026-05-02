@@ -35,6 +35,41 @@ def test_config_status_endpoint(temp_db_url):
     assert response.json()["openai"]["status"] == "missing_config"
 
 
+def test_config_status_endpoint_includes_persisted_provider_error(temp_db_url):
+    from api_spend_dashboard.db import Database
+    from api_spend_dashboard.main import create_app
+
+    db = Database(temp_db_url)
+    db.migrate()
+    run_id = db.start_sync_run("openai")
+    db.finish_sync_run(
+        run_id,
+        status="failed",
+        error_type="auth_error",
+        error_message="bad key",
+    )
+
+    app = create_app(
+        Settings(
+            database_url=temp_db_url,
+            openai_enabled=True,
+            openai_admin_api_key="sk-configured",
+        ),
+        start_scheduler=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/config/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["openai"]["status"] == "error"
+    assert payload["openai"]["missing"] == []
+    assert payload["openai"]["last_sync_at"]
+    assert payload["openai"]["last_success_at"] is None
+    assert payload["openai"]["last_error"] == "bad key"
+
+
 def test_dashboard_route_loads(temp_db_url):
     from api_spend_dashboard.main import create_app
 

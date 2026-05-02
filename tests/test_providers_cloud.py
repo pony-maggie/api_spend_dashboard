@@ -38,6 +38,57 @@ def test_gemini_rows_to_snapshots(temp_db_url):
     _assert_can_upsert(temp_db_url, snapshot)
 
 
+def test_gemini_rows_to_snapshots_aggregates_duplicate_daily_rows(temp_db_url):
+    settings = Settings(database_url=temp_db_url, default_currency="usd")
+    rows = [
+        SimpleNamespace(
+            usage_start_time=datetime(2026, 5, 1, 0, 0, tzinfo=UTC),
+            usage_end_time=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+            cost="3.25",
+            currency="usd",
+            service_description="Gemini API",
+        ),
+        SimpleNamespace(
+            usage_start_time=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+            usage_end_time=datetime(2026, 5, 2, 0, 0, tzinfo=UTC),
+            cost="2.75",
+            currency="usd",
+            service_description="Vertex AI Gemini",
+        ),
+    ]
+
+    snapshots = rows_to_snapshots(settings, rows)
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot.period_start == datetime(2026, 5, 1, tzinfo=UTC)
+    assert snapshot.period_end == datetime(2026, 5, 2, tzinfo=UTC)
+    assert snapshot.currency == "USD"
+    assert snapshot.cost_amount == 6.0
+    assert snapshot.raw_summary == {
+        "row_count": 2,
+        "service_descriptions": ["Gemini API", "Vertex AI Gemini"],
+    }
+    _assert_can_upsert(temp_db_url, snapshot)
+
+
+def test_gemini_rows_reject_single_row_spanning_multiple_utc_dates(temp_db_url):
+    settings = Settings(database_url=temp_db_url)
+    rows = [
+        {
+            "usage_start_time": "2026-05-01T23:00:00Z",
+            "usage_end_time": "2026-05-02T01:00:00Z",
+            "cost": "1.00",
+            "service_description": "Gemini API",
+        }
+    ]
+
+    with pytest.raises(ProviderSyncError) as exc_info:
+        rows_to_snapshots(settings, rows)
+
+    assert exc_info.value.error_type == "parse_error"
+
+
 def test_gemini_row_parse_errors_are_provider_sync_errors(temp_db_url):
     settings = Settings(database_url=temp_db_url)
     rows = [

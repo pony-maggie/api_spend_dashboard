@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 import math
 from typing import Any, Iterable
 
@@ -60,21 +60,59 @@ class GeminiConnector:
 
 
 def rows_to_snapshots(settings: Settings, rows: Iterable[Any]) -> list[UsageSnapshot]:
-    snapshots: list[UsageSnapshot] = []
+    aggregated: dict[tuple[datetime, str], dict[str, Any]] = {}
     for row in rows:
         period_start = _as_datetime(_row_value(row, "usage_start_time"), "usage_start_time")
         period_end = _as_datetime(_row_value(row, "usage_end_time"), "usage_end_time")
         if period_end <= period_start:
             raise ProviderSyncError("parse_error", "Gemini usage_end_time must be after usage_start_time")
 
+        utc_day = period_start.date()
+        day_start = datetime.combine(utc_day, time.min, tzinfo=UTC)
+        next_day_start = day_start + timedelta(days=1)
+        if period_end > next_day_start:
+            raise ProviderSyncError(
+                "parse_error",
+                "Gemini billing rows spanning multiple UTC dates are not supported",
+            )
+        if period_end.date() != utc_day and period_end != next_day_start:
+            raise ProviderSyncError(
+                "parse_error",
+                "Gemini billing rows spanning multiple UTC dates are not supported",
+            )
+
+        currency = _currency(_row_value(row, "currency", settings.default_currency), settings)
+        key = (day_start, currency)
+        summary = aggregated.setdefault(
+            key,
+            {
+                "cost_amount": 0.0,
+                "row_count": 0,
+                "service_descriptions": [],
+            },
+        )
+        summary["cost_amount"] += _non_negative_float(_row_value(row, "cost", 0))
+        summary["row_count"] += 1
+        service_description = str(_row_value(row, "service_description", "")).strip()
+        if service_description and service_description not in summary["service_descriptions"]:
+            summary["service_descriptions"].append(service_description)
+
+    snapshots: list[UsageSnapshot] = []
+    for (day_start, currency), summary in sorted(aggregated.items()):
+        raw_summary = {
+            "row_count": summary["row_count"],
+            "service_descriptions": summary["service_descriptions"],
+        }
+        if summary["row_count"] == 1 and summary["service_descriptions"]:
+            raw_summary["service_description"] = summary["service_descriptions"][0]
         snapshots.append(
             UsageSnapshot(
                 provider_id=GeminiConnector.provider_id,
-                period_start=period_start,
-                period_end=period_end,
+                period_start=day_start,
+                period_end=day_start + timedelta(days=1),
                 granularity="day",
-                currency=_currency(_row_value(row, "currency", settings.default_currency), settings),
-                cost_amount=_non_negative_float(_row_value(row, "cost", 0)),
+                currency=currency,
+                cost_amount=summary["cost_amount"],
                 input_tokens=None,
                 output_tokens=None,
                 total_tokens=None,
@@ -82,9 +120,7 @@ def rows_to_snapshots(settings: Settings, rows: Iterable[Any]) -> list[UsageSnap
                 quota_limit=None,
                 quota_remaining=None,
                 quota_reset_at=None,
-                raw_summary={
-                    "service_description": str(_row_value(row, "service_description", "")),
-                },
+                raw_summary=raw_summary,
             )
         )
     return snapshots

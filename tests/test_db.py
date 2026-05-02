@@ -250,6 +250,21 @@ def test_snapshot_upsert_replaces_existing_row(temp_db_url):
     assert rows == [{"cost_amount": 20.0, "total_tokens": 250, "requests": 7}]
 
 
+def test_snapshot_upsert_preserves_same_period_with_different_currency(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+
+    db.upsert_snapshot(_snapshot(cost_amount=12.5, currency="USD"))
+    db.upsert_snapshot(_snapshot(cost_amount=8.0, currency="CNY"))
+
+    rows = db.query_all("SELECT currency, cost_amount FROM usage_snapshots ORDER BY currency")
+
+    assert rows == [
+        {"currency": "CNY", "cost_amount": 8.0},
+        {"currency": "USD", "cost_amount": 12.5},
+    ]
+
+
 def test_ensure_provider_updates_existing_row(temp_db_url):
     db = Database(temp_db_url)
     db.migrate()

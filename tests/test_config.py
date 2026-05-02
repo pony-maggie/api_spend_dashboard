@@ -1,6 +1,26 @@
 from api_spend_dashboard.config import Settings
 
 
+def test_default_settings_ignores_dotenv_in_current_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "OPENAI_ENABLED=true",
+                "OPENAI_ADMIN_API_KEY=real-key-from-dotenv",
+                "CHATGPT_PRO_PRICE=200",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(database_url="sqlite:///isolated.sqlite3")
+
+    assert settings.openai_enabled is False
+    assert settings.openai_admin_api_key == ""
+    assert settings.chatgpt_pro_price == 0
+
+
 def test_provider_missing_config_is_reported(temp_db_url):
     settings = Settings(
         database_url=temp_db_url,

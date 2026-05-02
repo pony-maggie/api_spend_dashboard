@@ -111,7 +111,11 @@ function renderProviders(statuses) {
       const config = statuses[provider.id] || { status: "unknown", missing: [] };
       const statusText = config.status.replaceAll("_", " ");
       const missing = Array.isArray(config.missing) ? config.missing : [];
-      const detail = missing.length ? `Missing ${missing.join(", ")}` : "No required fields missing";
+      const detail = config.last_error
+        ? config.last_error
+        : missing.length
+          ? `Missing ${missing.join(", ")}`
+          : "No required fields missing";
 
       return `
         <article class="provider-card">

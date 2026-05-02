@@ -63,7 +63,16 @@ def create_app(settings: Settings | None = None, *, start_scheduler: bool = True
 
     @app.get("/api/config/status")
     async def config_status() -> dict:
-        return app_settings.provider_config_status()
+        statuses = app_settings.provider_config_status()
+        persisted_statuses = db.provider_statuses()
+        for provider_id, status in statuses.items():
+            persisted = persisted_statuses.get(provider_id, {})
+            status["last_sync_at"] = persisted.get("last_sync_at")
+            status["last_success_at"] = persisted.get("last_success_at")
+            status["last_error"] = persisted.get("last_error")
+            if status["status"] == "configured" and persisted.get("status") == "error":
+                status["status"] = "error"
+        return statuses
 
     @app.get("/api/summary")
     async def summary() -> dict:

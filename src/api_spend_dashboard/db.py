@@ -77,7 +77,7 @@ class Database:
                     quota_reset_at TEXT,
                     raw_summary_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    UNIQUE (provider_id, period_start, period_end, granularity),
+                    UNIQUE (provider_id, period_start, period_end, granularity, currency),
                     CHECK (length(trim(provider_id)) > 0),
                     CHECK (period_end > period_start),
                     CHECK (granularity IN ('day', 'month')),
@@ -118,6 +118,7 @@ class Database:
                 );
                 """
             )
+            self._migrate_usage_snapshots_currency_unique(conn)
 
     def ensure_provider(
         self,
@@ -201,9 +202,8 @@ class Database:
                     created_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(provider_id, period_start, period_end, granularity)
+                ON CONFLICT(provider_id, period_start, period_end, granularity, currency)
                 DO UPDATE SET
-                    currency = excluded.currency,
                     cost_amount = excluded.cost_amount,
                     input_tokens = excluded.input_tokens,
                     output_tokens = excluded.output_tokens,
@@ -216,6 +216,100 @@ class Database:
                 """,
                 values,
             )
+
+    def _migrate_usage_snapshots_currency_unique(self, conn: sqlite3.Connection) -> None:
+        if self._has_usage_snapshot_currency_unique(conn):
+            return
+
+        conn.executescript(
+            """
+            ALTER TABLE usage_snapshots RENAME TO usage_snapshots_old;
+
+            CREATE TABLE usage_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id TEXT NOT NULL REFERENCES providers(id),
+                period_start TEXT NOT NULL,
+                period_end TEXT NOT NULL,
+                granularity TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                cost_amount REAL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                total_tokens INTEGER,
+                requests INTEGER,
+                quota_limit INTEGER,
+                quota_remaining INTEGER,
+                quota_reset_at TEXT,
+                raw_summary_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE (provider_id, period_start, period_end, granularity, currency),
+                CHECK (length(trim(provider_id)) > 0),
+                CHECK (period_end > period_start),
+                CHECK (granularity IN ('day', 'month')),
+                CHECK (length(trim(currency)) > 0),
+                CHECK (cost_amount IS NULL OR cost_amount >= 0),
+                CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                CHECK (total_tokens IS NULL OR total_tokens >= 0),
+                CHECK (requests IS NULL OR requests >= 0),
+                CHECK (quota_limit IS NULL OR quota_limit >= 0),
+                CHECK (quota_remaining IS NULL OR quota_remaining >= 0)
+            );
+
+            INSERT OR REPLACE INTO usage_snapshots (
+                id,
+                provider_id,
+                period_start,
+                period_end,
+                granularity,
+                currency,
+                cost_amount,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                requests,
+                quota_limit,
+                quota_remaining,
+                quota_reset_at,
+                raw_summary_json,
+                created_at
+            )
+            SELECT
+                id,
+                provider_id,
+                period_start,
+                period_end,
+                granularity,
+                currency,
+                cost_amount,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                requests,
+                quota_limit,
+                quota_remaining,
+                quota_reset_at,
+                raw_summary_json,
+                created_at
+            FROM usage_snapshots_old;
+
+            DROP TABLE usage_snapshots_old;
+            """
+        )
+
+    def _has_usage_snapshot_currency_unique(self, conn: sqlite3.Connection) -> bool:
+        expected = ["provider_id", "period_start", "period_end", "granularity", "currency"]
+        indexes = conn.execute("PRAGMA index_list('usage_snapshots')").fetchall()
+        for index in indexes:
+            if not index["unique"]:
+                continue
+            columns = [
+                row["name"]
+                for row in conn.execute(f"PRAGMA index_info('{index['name']}')").fetchall()
+            ]
+            if columns == expected:
+                return True
+        return False
 
     def start_sync_run(self, provider_id: str) -> int:
         self.ensure_provider(provider_id)
@@ -314,6 +408,15 @@ class Database:
             """,
             params,
         )
+
+    def provider_statuses(self) -> dict[str, dict[str, Any]]:
+        rows = self.query_all(
+            """
+            SELECT id, status, last_sync_at, last_success_at, last_error
+            FROM providers
+            """
+        )
+        return {row["id"]: row for row in rows}
 
     def query_all(self, sql: str, params: list[Any] | tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         with self.connect() as conn:
