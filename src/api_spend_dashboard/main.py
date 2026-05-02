@@ -22,7 +22,7 @@ TEMPLATES_DIR = PACKAGE_DIR / "templates"
 STATIC_DIR = PACKAGE_DIR / "static"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, start_scheduler: bool = True) -> FastAPI:
     app_settings = settings or get_settings()
     db = Database(app_settings.database_url)
     db.migrate()
@@ -32,20 +32,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            sync_service.sync_all,
-            "interval",
-            hours=app_settings.sync_interval_hours,
-            id="sync_all",
-            replace_existing=True,
-        )
-        scheduler.start()
-        app.state.scheduler = scheduler
+        scheduler: AsyncIOScheduler | None = None
+        if start_scheduler:
+            scheduler = AsyncIOScheduler()
+            scheduler.add_job(
+                sync_service.sync_all,
+                "interval",
+                hours=app_settings.sync_interval_hours,
+                id="sync_all",
+                replace_existing=True,
+            )
+            scheduler.start()
+            app.state.scheduler = scheduler
         try:
             yield
         finally:
-            scheduler.shutdown(wait=False)
+            if scheduler is not None:
+                scheduler.shutdown(wait=False)
 
     app = FastAPI(title="API Spend Dashboard", lifespan=lifespan)
     app.state.settings = app_settings
@@ -75,6 +78,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await sync_service.sync_all()
 
     return app
-
-
-app = create_app()

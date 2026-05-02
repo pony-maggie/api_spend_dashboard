@@ -42,16 +42,17 @@ class SyncService:
             results: dict[str, dict[str, Any]] = {}
 
             for connector in self.connectors:
-                self.db.ensure_provider(
-                    connector.provider_id,
-                    connector.display_name,
-                    enabled=True,
-                    status="configured",
-                )
-                run_id = self.db.start_sync_run(connector.provider_id)
+                run_id: int | None = None
+                snapshots_written = 0
                 try:
+                    self.db.ensure_provider(
+                        connector.provider_id,
+                        connector.display_name,
+                        enabled=True,
+                        status="configured",
+                    )
+                    run_id = self.db.start_sync_run(connector.provider_id)
                     result = await connector.sync(sync_time)
-                    snapshots_written = 0
                     for snapshot in result.snapshots:
                         self.db.upsert_snapshot(snapshot)
                         snapshots_written += 1
@@ -66,31 +67,53 @@ class SyncService:
                         "message": result.status_message,
                     }
                 except ProviderSyncError as exc:
-                    self.db.finish_sync_run(
+                    results[connector.provider_id] = self._failed_result(
                         run_id,
-                        status="failed",
-                        error_type=exc.error_type,
-                        error_message=exc.message,
+                        exc.error_type,
+                        exc.message,
+                        snapshots_written=snapshots_written,
                     )
-                    results[connector.provider_id] = {
-                        "status": "failed",
-                        "error_type": exc.error_type,
-                        "error_message": exc.message,
-                    }
                 except Exception as exc:
-                    self.db.finish_sync_run(
+                    results[connector.provider_id] = self._failed_result(
                         run_id,
-                        status="failed",
-                        error_type="unknown_error",
-                        error_message=str(exc),
+                        "unknown_error",
+                        str(exc),
+                        snapshots_written=snapshots_written,
                     )
-                    results[connector.provider_id] = {
-                        "status": "failed",
-                        "error_type": "unknown_error",
-                        "error_message": str(exc),
-                    }
 
             return {"sync": {"status": "completed"}, "providers": results}
+
+    def _failed_result(
+        self,
+        run_id: int | None,
+        error_type: str,
+        error_message: str,
+        *,
+        snapshots_written: int,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "status": "failed",
+            "error_type": error_type,
+            "error_message": error_message,
+        }
+        if snapshots_written:
+            result["snapshots_written"] = snapshots_written
+        if run_id is None:
+            if snapshots_written == 0:
+                result["snapshots_written"] = 0
+            return result
+
+        try:
+            self.db.finish_sync_run(
+                run_id,
+                status="failed",
+                error_type=error_type,
+                error_message=error_message,
+                snapshots_written=snapshots_written,
+            )
+        except Exception as exc:
+            result["finish_error"] = str(exc)
+        return result
 
     def _record_provider_config_status(self) -> None:
         for provider_id, config_status in self.settings.provider_config_status().items():
