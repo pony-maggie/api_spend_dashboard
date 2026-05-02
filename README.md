@@ -54,3 +54,13 @@ Set `DIGITALOCEAN_ENABLED=true` and `DIGITALOCEAN_TOKEN`.
 ## Data
 
 SQLite data is stored under `data/` by default through `DATABASE_URL=sqlite:///./data/api_spend.sqlite3`. The `data/` directory is ignored by git.
+
+## Verification
+
+Task 9 verification used these commands/results:
+
+- `.venv/bin/python -m pytest -q` -> `69 passed`
+- `.venv/bin/python -m ruff check .` -> passed
+- Uvicorn factory server was verified on port 8001 because port 8000 was already in use.
+- `curl -s http://127.0.0.1:8001/ | rg "API Spend Dashboard"` -> matched `API Spend Dashboard`
+- `curl -s http://127.0.0.1:8001/api/config/status | rg "openai|chatgpt_pro|minimax|gemini|qianfan|brave|digitalocean"` -> matched all provider keys
