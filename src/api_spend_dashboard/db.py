@@ -149,8 +149,8 @@ class Database:
                 (
                     provider_id,
                     name or provider_id,
-                    int(enabled) if enabled is not None else 1,
-                    status or "unknown",
+                    int(enabled) if enabled is not None else 0,
+                    status or "disabled",
                     now,
                     now,
                     name is not None,

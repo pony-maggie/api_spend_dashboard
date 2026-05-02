@@ -162,6 +162,17 @@ def test_ensure_provider_updates_existing_row(temp_db_url):
     assert rows == [{"name": "OpenAI API", "enabled": 0, "status": "disabled"}]
 
 
+def test_ensure_provider_uses_disabled_defaults_for_new_provider(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+
+    db.ensure_provider("openai")
+
+    rows = db.query_all("SELECT name, enabled, status FROM providers WHERE id = ?", ("openai",))
+
+    assert rows == [{"name": "openai", "enabled": 0, "status": "disabled"}]
+
+
 def test_ensure_provider_preserves_existing_fields_when_unspecified(temp_db_url):
     db = Database(temp_db_url)
     db.migrate()
