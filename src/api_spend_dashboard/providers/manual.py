@@ -2,15 +2,19 @@ from datetime import UTC, datetime
 
 from api_spend_dashboard.config import Settings
 from api_spend_dashboard.models import UsageSnapshot
-from api_spend_dashboard.providers.base import SyncResult
+from api_spend_dashboard.providers.base import ProviderSyncError, SyncResult
 
 
 def _month_bounds(now: datetime) -> tuple[datetime, datetime]:
-    start = datetime(now.year, now.month, 1, tzinfo=UTC)
-    if now.month == 12:
-        end = datetime(now.year + 1, 1, 1, tzinfo=UTC)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+
+    utc_now = now.astimezone(UTC)
+    start = datetime(utc_now.year, utc_now.month, 1, tzinfo=UTC)
+    if utc_now.month == 12:
+        end = datetime(utc_now.year + 1, 1, 1, tzinfo=UTC)
     else:
-        end = datetime(now.year, now.month + 1, 1, tzinfo=UTC)
+        end = datetime(utc_now.year, utc_now.month + 1, 1, tzinfo=UTC)
     return start, end
 
 
@@ -22,13 +26,20 @@ class ChatGPTProConnector:
         self.settings = settings
 
     async def sync(self, now: datetime) -> SyncResult:
+        if self.settings.chatgpt_pro_price <= 0:
+            raise ProviderSyncError("missing_config", "CHATGPT_PRO_PRICE must be positive")
+
+        currency = self.settings.chatgpt_pro_currency.strip().upper()
+        if not currency:
+            raise ProviderSyncError("missing_config", "CHATGPT_PRO_CURRENCY must be non-empty")
+
         start, end = _month_bounds(now)
         snapshot = UsageSnapshot(
             provider_id=self.provider_id,
             period_start=start,
             period_end=end,
             granularity="month",
-            currency=self.settings.chatgpt_pro_currency,
+            currency=currency,
             cost_amount=self.settings.chatgpt_pro_price,
             input_tokens=None,
             output_tokens=None,
