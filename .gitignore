@@ -21,3 +21,4 @@ data/
 *.sqlite3-wal
 .DS_Store
 .superpowers/
+docs/superpowers/

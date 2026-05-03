@@ -34,6 +34,8 @@ PORT=8001 scripts/restart-server.sh
 
 后台同步间隔由 `SYNC_INTERVAL_HOURS` 控制，默认 6 小时。页面上的 `Sync now` 可以手动立即同步。
 
+各平台 API Key、权限和 Google Cloud Billing Export 的开通步骤见 [API Key 与账单导出开通指南](docs/api-keys-setup.zh.md)。
+
 ### OpenAI API
 
 设置：
