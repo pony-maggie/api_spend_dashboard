@@ -118,6 +118,11 @@ class DashboardQueries:
                     ELSE COALESCE(SUM(cost_amount), 0)
                 END AS cost,
                 CASE WHEN COUNT(cost_amount) = 0 THEN 0 ELSE 1 END AS cost_available,
+                CASE
+                    WHEN SUM(CASE WHEN granularity = 'day' THEN 1 ELSE 0 END) > 0
+                    THEN 'actual_daily'
+                    ELSE 'month_snapshot'
+                END AS cost_basis,
                 COALESCE(SUM(total_tokens), 0) AS total_tokens,
                 COALESCE(SUM(requests), 0) AS total_requests
             FROM selected_snapshots

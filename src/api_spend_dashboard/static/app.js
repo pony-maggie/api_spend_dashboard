@@ -85,9 +85,9 @@ function renderSummaryCards(summaryData) {
       subtext: "Recorded usage events",
     },
     {
-      label: "Daily spend",
+      label: "Actual daily spend",
       value: formatCurrency(totalDailyCost),
-      subtext: "Visible 30-day rows",
+      subtext: "Providers with daily rows",
     },
   ];
 
@@ -128,11 +128,12 @@ function renderProviders(statuses, summaryData) {
       const spendText = totals.length
         ? `Month spend ${totals.map(formatProviderTotal).join(", ")}`
         : "No spend snapshot for this month";
+      const basisText = totals.length ? formatCostBasis(totals) : "";
       const detail = config.last_error
         ? config.last_error
         : missing.length
           ? `Missing ${missing.join(", ")}`
-          : spendText;
+          : [spendText, basisText].filter(Boolean).join(" · ");
 
       return `
         <article class="provider-card">
@@ -150,6 +151,17 @@ function formatProviderTotal(row) {
     return `${row.currency || "USD"} unavailable`;
   }
   return formatCurrencyWithCode(row.cost, row.currency);
+}
+
+function formatCostBasis(rows) {
+  const bases = [...new Set(rows.map((row) => row.cost_basis).filter(Boolean))];
+  if (bases.includes("actual_daily")) {
+    return "actual daily";
+  }
+  if (bases.includes("month_snapshot")) {
+    return "month snapshot";
+  }
+  return "";
 }
 
 function buildDailyDatasets(dailyCosts) {

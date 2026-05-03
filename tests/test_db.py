@@ -252,6 +252,7 @@ def test_month_provider_totals_include_month_only_provider(temp_db_url):
             "currency": "USD",
             "cost": 20.0,
             "cost_available": 1,
+            "cost_basis": "month_snapshot",
             "total_tokens": 0,
             "total_requests": 0,
         },
@@ -260,6 +261,7 @@ def test_month_provider_totals_include_month_only_provider(temp_db_url):
             "currency": "USD",
             "cost": 5.0,
             "cost_available": 1,
+            "cost_basis": "actual_daily",
             "total_tokens": 100,
             "total_requests": 2,
         },
@@ -290,6 +292,7 @@ def test_month_provider_totals_preserve_unavailable_cost(temp_db_url):
             "currency": "USD",
             "cost": None,
             "cost_available": 0,
+            "cost_basis": "month_snapshot",
             "total_tokens": 0,
             "total_requests": 0,
         }
