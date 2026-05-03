@@ -141,6 +141,23 @@ GCP_BILLING_TABLE=
 GEMINI_SERVICE_FILTER=Gemini API
 ```
 
+先理解 Google Cloud 里的几个对象：
+
+- `Cloud Billing account` 是付款账户，绑定付款方式，最终账单从这里出。
+- `Google Cloud Project` 是资源容器，Gemini API、BigQuery dataset、service account 都属于某个 project。
+- Billing Export 的目标 project 不一定要和 Gemini API 所在 project 相同。推荐单独建一个类似 `api-spend-billing-export` 的项目，只用来存放 BigQuery 账单导出表。
+- “确认这个项目已启用结算”指的是：这个用于存放 BigQuery 导出表的 project 要绑定到你的 Cloud Billing account，否则 BigQuery dataset/table 可能无法创建或使用。
+
+可以按这个关系理解：
+
+```text
+Cloud Billing account
+  ├─ Gemini API 项目
+  ├─ 其他 GCP 项目
+  └─ api-spend-billing-export 项目
+       └─ BigQuery dataset / billing export table
+```
+
 开通步骤：
 
 1. 在 Google Cloud Console 选择一个用于存放账单导出数据的项目，建议单独建一个 FinOps 或 billing 项目。
