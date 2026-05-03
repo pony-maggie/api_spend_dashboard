@@ -6,6 +6,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 data/
+.run/
 *.db
 *.db-journal
 *.db-shm

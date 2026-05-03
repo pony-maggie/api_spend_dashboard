@@ -8,10 +8,16 @@ Local browser dashboard for tracking personal API and infrastructure usage costs
 python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
 cp .env.example .env
-.venv/bin/python -m uvicorn api_spend_dashboard.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+scripts/restart-server.sh
 ```
 
 Open http://127.0.0.1:8000.
+
+The restart script stops any existing project Uvicorn process on the target port, then starts the dashboard in the foreground. Keep that terminal open while using the dashboard; press `Ctrl+C` to stop it. Runtime PID data is written under `.run/`. To use a different port:
+
+```bash
+PORT=8001 scripts/restart-server.sh
+```
 
 ## Configuration
 
