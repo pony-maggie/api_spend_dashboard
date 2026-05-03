@@ -107,7 +107,7 @@ def test_summary_endpoint_returns_dashboard_shape(temp_db_url):
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) == {"summary", "daily_costs"}
+    assert set(payload) == {"summary", "daily_costs", "provider_totals"}
     assert set(payload["summary"]) == {
         "total_cost",
         "total_tokens",
@@ -115,6 +115,7 @@ def test_summary_endpoint_returns_dashboard_shape(temp_db_url):
         "provider_count",
     }
     assert isinstance(payload["daily_costs"], list)
+    assert isinstance(payload["provider_totals"], list)
 
 
 def test_static_dashboard_assets_are_served(temp_db_url):

@@ -80,6 +80,7 @@ def create_app(settings: Settings | None = None, *, start_scheduler: bool = True
         return {
             "summary": queries.month_summary(now.year, now.month),
             "daily_costs": queries.daily_costs(),
+            "provider_totals": queries.month_provider_totals(now.year, now.month),
         }
 
     @app.post("/api/sync")

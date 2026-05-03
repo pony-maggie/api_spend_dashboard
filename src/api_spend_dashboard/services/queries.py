@@ -79,6 +79,55 @@ class DashboardQueries:
             (start_date.isoformat(),),
         )
 
+    def month_provider_totals(self, year: int, month: int) -> list[dict[str, Any]]:
+        start = datetime(year, month, 1, tzinfo=UTC)
+        if month == 12:
+            end = datetime(year + 1, 1, 1, tzinfo=UTC)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=UTC)
+
+        return self.db.query_all(
+            """
+            WITH providers_with_daily AS (
+                SELECT DISTINCT provider_id
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND granularity = 'day'
+            ),
+            selected_snapshots AS (
+                SELECT *
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND (
+                        granularity = 'day'
+                        OR (
+                            granularity = 'month'
+                            AND provider_id NOT IN (SELECT provider_id FROM providers_with_daily)
+                        )
+                    )
+            )
+            SELECT
+                provider_id,
+                currency,
+                COALESCE(SUM(cost_amount), 0) AS cost,
+                COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                COALESCE(SUM(requests), 0) AS total_requests
+            FROM selected_snapshots
+            GROUP BY provider_id, currency
+            ORDER BY provider_id, currency
+            """,
+            (
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+            ),
+        )
+
     @staticmethod
     def _dt_to_iso(value: datetime) -> str:
         return value.astimezone(UTC).isoformat()

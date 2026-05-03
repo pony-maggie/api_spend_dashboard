@@ -22,9 +22,13 @@ let trendChart = null;
 let shareChart = null;
 
 function formatCurrency(value) {
+  return formatCurrencyWithCode(value, "USD");
+}
+
+function formatCurrencyWithCode(value, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: currency || "USD",
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
 }
@@ -100,22 +104,35 @@ function renderSummaryCards(summaryData) {
     .join("");
 }
 
-function renderProviders(statuses) {
+function providerTotalsById(summaryData) {
+  return (summaryData.provider_totals || []).reduce((byId, row) => {
+    byId[row.provider_id] ||= [];
+    byId[row.provider_id].push(row);
+    return byId;
+  }, {});
+}
+
+function renderProviders(statuses, summaryData) {
   const configured = providers.filter((provider) => statuses[provider.id]?.status === "configured").length;
   const total = providers.length;
   const hint = document.querySelector("#config-hint");
   hint.textContent = `${configured} of ${total} providers configured. Missing fields are shown on each card.`;
+  const totalsById = providerTotalsById(summaryData);
 
   document.querySelector("#provider-grid").innerHTML = providers
     .map((provider) => {
       const config = statuses[provider.id] || { status: "unknown", missing: [] };
       const statusText = config.status.replaceAll("_", " ");
       const missing = Array.isArray(config.missing) ? config.missing : [];
+      const totals = totalsById[provider.id] || [];
+      const spendText = totals.length
+        ? `Month spend ${totals.map((row) => formatCurrencyWithCode(row.cost, row.currency)).join(", ")}`
+        : "No spend snapshot for this month";
       const detail = config.last_error
         ? config.last_error
         : missing.length
           ? `Missing ${missing.join(", ")}`
-          : "No required fields missing";
+          : spendText;
 
       return `
         <article class="provider-card">
@@ -149,13 +166,12 @@ function buildDailyDatasets(dailyCosts) {
   };
 }
 
-function buildProviderTotals(dailyCosts) {
+function buildMonthProviderTotals(summaryData) {
+  const totalsByProvider = providerTotalsById(summaryData);
   return providers
     .map((provider) => ({
       ...provider,
-      total: dailyCosts
-        .filter((row) => row.provider_id === provider.id)
-        .reduce((sum, row) => sum + Number(row.cost || 0), 0),
+      total: (totalsByProvider[provider.id] || []).reduce((sum, row) => sum + Number(row.cost || 0), 0),
     }))
     .filter((provider) => provider.total > 0);
 }
@@ -181,43 +197,41 @@ function renderCharts(summaryData) {
     return;
   }
 
-  if (!dailyCosts.length) {
-    setChartState("trend-chart", "No daily spend rows yet.");
-    setChartState("share-chart", "No provider spend to chart yet.");
-    return;
-  }
-
-  setChartState("trend-chart", "");
-  const trendData = buildDailyDatasets(dailyCosts);
-  trendChart = new window.Chart(trendContext, {
-    type: "line",
-    data: trendData,
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { intersect: false, mode: "index" },
-      plugins: {
-        legend: {
-          position: "bottom",
-          labels: { boxWidth: 12, usePointStyle: true },
+  if (dailyCosts.length) {
+    setChartState("trend-chart", "");
+    const trendData = buildDailyDatasets(dailyCosts);
+    trendChart = new window.Chart(trendContext, {
+      type: "line",
+      data: trendData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: "index" },
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: { boxWidth: 12, usePointStyle: true },
+          },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.dataset.label}: ${formatCurrency(context.parsed.y)}`,
+            },
+          },
         },
-        tooltip: {
-          callbacks: {
-            label: (context) => `${context.dataset.label}: ${formatCurrency(context.parsed.y)}`,
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            beginAtZero: true,
+            ticks: { callback: (value) => formatCurrency(value) },
           },
         },
       },
-      scales: {
-        x: { grid: { display: false } },
-        y: {
-          beginAtZero: true,
-          ticks: { callback: (value) => formatCurrency(value) },
-        },
-      },
-    },
-  });
+    });
+  } else {
+    setChartState("trend-chart", "No daily spend rows yet.");
+  }
 
-  const providerTotals = buildProviderTotals(dailyCosts);
+  const providerTotals = buildMonthProviderTotals(summaryData);
   if (!providerTotals.length) {
     setChartState("share-chart", "No provider spend to chart yet.");
     return;
@@ -301,7 +315,7 @@ async function loadDashboard(statusOverride = null) {
     ]);
 
     renderSummaryCards(summaryData);
-    renderProviders(configStatus);
+    renderProviders(configStatus, summaryData);
     renderCharts(summaryData);
     if (statusOverride) {
       setStatus(statusOverride.message, statusOverride.state);
