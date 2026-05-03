@@ -50,6 +50,79 @@ async def test_minimax_remains_snapshot(temp_db_url):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_minimax_model_remains_list_snapshot(temp_db_url):
+    settings = Settings(
+        database_url=temp_db_url,
+        minimax_enabled=True,
+        minimax_api_key="sk-test",
+        minimax_plan_price=99,
+    )
+    respx.get("https://www.minimax.io/v1/token_plan/remains").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "base_resp": {"status_code": 0},
+                "model_remains": [
+                    {
+                        "start_time": 1777593600,
+                        "end_time": 1777680000,
+                        "current_interval_total_count": 1000,
+                        "current_interval_usage_count": 250,
+                        "model_name": "model-a",
+                    },
+                    {
+                        "start_time": 1777593600,
+                        "end_time": 1777680000,
+                        "current_interval_total_count": 500,
+                        "current_interval_usage_count": 100,
+                        "model_name": "model-b",
+                    },
+                ],
+            },
+        )
+    )
+
+    result = await MiniMaxConnector(settings).sync(datetime(2026, 5, 2, tzinfo=UTC))
+
+    snapshot = result.snapshots[0]
+    assert snapshot.quota_limit == 1500
+    assert snapshot.quota_remaining == 1150
+    assert snapshot.quota_reset_at == datetime(2026, 5, 2, tzinfo=UTC)
+    assert snapshot.raw_summary["quota_payload"]["model_count"] == 2
+    _assert_can_upsert(temp_db_url, snapshot)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_minimax_model_remains_list_accepts_millisecond_timestamps(temp_db_url):
+    settings = Settings(
+        database_url=temp_db_url,
+        minimax_enabled=True,
+        minimax_api_key="sk-test",
+    )
+    respx.get("https://www.minimax.io/v1/token_plan/remains").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "base_resp": {"status_code": 0},
+                "model_remains": [
+                    {
+                        "end_time": 1777680000000,
+                        "current_interval_total_count": 1000,
+                        "current_interval_usage_count": 250,
+                    }
+                ],
+            },
+        )
+    )
+
+    result = await MiniMaxConnector(settings).sync(datetime(2026, 5, 2, tzinfo=UTC))
+
+    assert result.snapshots[0].quota_reset_at == datetime(2026, 5, 2, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_brave_quota_header_snapshot(temp_db_url):
     settings = Settings(database_url=temp_db_url, brave_enabled=True, brave_api_key="brave")
     route = respx.get("https://api.search.brave.com/res/v1/web/search").mock(

@@ -84,6 +84,10 @@ class MiniMaxConnector:
 
 
 def _quota_payload(payload: Any) -> Any:
+    model_remains = payload.get("model_remains") if isinstance(payload, dict) else None
+    if isinstance(model_remains, list):
+        return _model_remains_quota(model_remains)
+
     data = payload.get("data", payload)
     if not isinstance(data, dict):
         return data
@@ -92,6 +96,35 @@ def _quota_payload(payload: Any) -> Any:
         if isinstance(value, dict):
             return value
     return data
+
+
+def _model_remains_quota(model_remains: list[Any]) -> dict[str, Any]:
+    limit = 0
+    used = 0
+    reset_timestamps: list[int] = []
+    model_names: list[str] = []
+    for item in model_remains:
+        if not isinstance(item, dict):
+            raise ProviderSyncError("parse_error", "MiniMax model_remains item must be a JSON object")
+        limit += _required_non_negative_int(item, "current_interval_total_count")
+        used += _required_non_negative_int(item, "current_interval_usage_count")
+        reset_at = _first_non_negative_int(item, ["end_time"])
+        if reset_at is not None:
+            reset_timestamps.append(reset_at)
+        model_name = str(item.get("model_name") or "").strip()
+        if model_name:
+            model_names.append(model_name)
+    quota = {
+        "limit": limit,
+        "remaining": max(limit - used, 0),
+        "used": used,
+        "model_count": len(model_remains),
+    }
+    if reset_timestamps:
+        quota["reset_at"] = min(reset_timestamps)
+    if model_names:
+        quota["model_names"] = model_names
+    return quota
 
 
 def _first_non_negative_int(payload: Any, keys: list[str]) -> int | None:
@@ -109,6 +142,17 @@ def _first_non_negative_int(payload: Any, keys: list[str]) -> int | None:
     return None
 
 
+def _required_non_negative_int(payload: dict[str, Any], key: str) -> int:
+    value = payload.get(key)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ProviderSyncError("parse_error", f"MiniMax {key} was not an integer") from exc
+    if parsed < 0:
+        raise ProviderSyncError("parse_error", f"MiniMax {key} must be non-negative")
+    return parsed
+
+
 def _reset_at(payload: Any, now: datetime) -> datetime | None:
     if not isinstance(payload, dict):
         return None
@@ -118,6 +162,8 @@ def _reset_at(payload: Any, now: datetime) -> datetime | None:
     timestamp = _first_non_negative_int(payload, ["reset_at", "reset_time", "reset_timestamp", "reset"])
     if timestamp is None:
         return None
+    if timestamp >= 10_000_000_000:
+        timestamp = timestamp // 1000
     return datetime.fromtimestamp(timestamp, tz=UTC)
 
 
