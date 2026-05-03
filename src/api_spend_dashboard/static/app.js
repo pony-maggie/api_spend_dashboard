@@ -126,7 +126,7 @@ function renderProviders(statuses, summaryData) {
       const missing = Array.isArray(config.missing) ? config.missing : [];
       const totals = totalsById[provider.id] || [];
       const spendText = totals.length
-        ? `Month spend ${totals.map((row) => formatCurrencyWithCode(row.cost, row.currency)).join(", ")}`
+        ? `Month spend ${totals.map(formatProviderTotal).join(", ")}`
         : "No spend snapshot for this month";
       const detail = config.last_error
         ? config.last_error
@@ -143,6 +143,13 @@ function renderProviders(statuses, summaryData) {
       `;
     })
     .join("");
+}
+
+function formatProviderTotal(row) {
+  if (!row.cost_available) {
+    return `${row.currency || "USD"} unavailable`;
+  }
+  return formatCurrencyWithCode(row.cost, row.currency);
 }
 
 function buildDailyDatasets(dailyCosts) {
@@ -171,7 +178,9 @@ function buildMonthProviderTotals(summaryData) {
   return providers
     .map((provider) => ({
       ...provider,
-      total: (totalsByProvider[provider.id] || []).reduce((sum, row) => sum + Number(row.cost || 0), 0),
+      total: (totalsByProvider[provider.id] || [])
+        .filter((row) => row.cost_available)
+        .reduce((sum, row) => sum + Number(row.cost || 0), 0),
     }))
     .filter((provider) => provider.total > 0);
 }

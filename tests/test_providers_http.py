@@ -154,6 +154,33 @@ async def test_brave_quota_header_snapshot(temp_db_url):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_brave_zero_monthly_limit_marks_cost_unavailable(temp_db_url):
+    settings = Settings(database_url=temp_db_url, brave_enabled=True, brave_api_key="brave")
+    respx.get("https://api.search.brave.com/res/v1/web/search").mock(
+        return_value=httpx.Response(
+            200,
+            headers={
+                "X-RateLimit-Limit": "50, 0",
+                "X-RateLimit-Remaining": "49, 0",
+                "X-RateLimit-Reset": "1, 2457978",
+            },
+            json={"web": {"results": []}},
+        )
+    )
+
+    result = await BraveConnector(settings).sync(datetime(2026, 5, 2, tzinfo=UTC))
+
+    snapshot = result.snapshots[0]
+    assert snapshot.cost_amount is None
+    assert snapshot.requests is None
+    assert snapshot.quota_limit is None
+    assert snapshot.quota_remaining is None
+    assert snapshot.raw_summary["cost_available"] is False
+    _assert_can_upsert(temp_db_url, snapshot)
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_digitalocean_balance_snapshot(temp_db_url):
     settings = Settings(database_url=temp_db_url, digitalocean_enabled=True, digitalocean_token="do")
     respx.get("https://api.digitalocean.com/v2/customers/my/balance").mock(

@@ -113,7 +113,11 @@ class DashboardQueries:
             SELECT
                 provider_id,
                 currency,
-                COALESCE(SUM(cost_amount), 0) AS cost,
+                CASE
+                    WHEN COUNT(cost_amount) = 0 THEN NULL
+                    ELSE COALESCE(SUM(cost_amount), 0)
+                END AS cost,
+                CASE WHEN COUNT(cost_amount) = 0 THEN 0 ELSE 1 END AS cost_available,
                 COALESCE(SUM(total_tokens), 0) AS total_tokens,
                 COALESCE(SUM(requests), 0) AS total_requests
             FROM selected_snapshots

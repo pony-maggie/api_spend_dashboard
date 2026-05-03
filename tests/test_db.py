@@ -251,6 +251,7 @@ def test_month_provider_totals_include_month_only_provider(temp_db_url):
             "provider_id": "chatgpt_pro",
             "currency": "USD",
             "cost": 20.0,
+            "cost_available": 1,
             "total_tokens": 0,
             "total_requests": 0,
         },
@@ -258,9 +259,40 @@ def test_month_provider_totals_include_month_only_provider(temp_db_url):
             "provider_id": "openai",
             "currency": "USD",
             "cost": 5.0,
+            "cost_available": 1,
             "total_tokens": 100,
             "total_requests": 2,
         },
+    ]
+
+
+def test_month_provider_totals_preserve_unavailable_cost(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="brave",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            cost_amount=None,
+            total_tokens=None,
+            requests=None,
+        )
+    )
+
+    rows = DashboardQueries(db).month_provider_totals(2026, 5)
+
+    assert rows == [
+        {
+            "provider_id": "brave",
+            "currency": "USD",
+            "cost": None,
+            "cost_available": 0,
+            "total_tokens": 0,
+            "total_requests": 0,
+        }
     ]
 
 

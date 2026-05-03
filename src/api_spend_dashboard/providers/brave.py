@@ -36,6 +36,9 @@ class BraveConnector:
         reset_values = _csv_int_header(response.headers.get("X-RateLimit-Reset", ""))
         monthly_limit = limits[-1] if limits else None
         monthly_remaining = remaining_values[-1] if remaining_values else None
+        if monthly_limit == 0 and monthly_remaining == 0:
+            monthly_limit = None
+            monthly_remaining = None
         used = _used_requests(monthly_limit, monthly_remaining)
         price_per_1000 = float(self.settings.brave_price_per_1000_requests)
         if price_per_1000 < 0:
@@ -64,6 +67,7 @@ class BraveConnector:
             quota_reset_at=reset_at,
             raw_summary={
                 "cost_is_estimate": True,
+                "cost_available": cost is not None,
                 "rate_limit_limit": response.headers.get("X-RateLimit-Limit"),
                 "rate_limit_remaining": response.headers.get("X-RateLimit-Remaining"),
                 "rate_limit_reset": response.headers.get("X-RateLimit-Reset"),
