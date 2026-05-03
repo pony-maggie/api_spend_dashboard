@@ -6,6 +6,18 @@ Local browser dashboard for tracking personal API and infrastructure usage costs
 
 这是一个本地浏览器 dashboard，用来监控你自己的 API 和基础设施费用。后端运行在本机，读取 `.env` 里的配置和密钥，定时调用已启用平台的 API，把用量和费用快照写入本地 SQLite，然后在浏览器里展示总览、趋势、平台状态和缺配置提示。
 
+### 配置指南
+
+各平台 API Key、权限和 Google Cloud Billing Export 的开通步骤见 [API Key 与账单导出开通指南](docs/api-keys-setup.zh.md)。
+
+### 截图
+
+![Dashboard 总览截图占位](img/1.png)
+
+![平台配置状态截图占位](img/2.png)
+
+![用量趋势截图占位](img/3.png)
+
 ### 运行
 
 ```bash
@@ -33,8 +45,6 @@ PORT=8001 scripts/restart-server.sh
 - `true`：这个平台会参与定时同步；如果必需配置没填，页面显示 `missing_config`。
 
 后台同步间隔由 `SYNC_INTERVAL_HOURS` 控制，默认 6 小时。页面上的 `Sync now` 可以手动立即同步。
-
-各平台 API Key、权限和 Google Cloud Billing Export 的开通步骤见 [API Key 与账单导出开通指南](docs/api-keys-setup.zh.md)。
 
 ### OpenAI API
 
