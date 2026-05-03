@@ -46,19 +46,24 @@ OPENAI_ORG_ID=
 
 开通步骤：
 
-1. 登录 OpenAI Platform，进入 API keys 页面创建 key。
-2. 这个 dashboard 调用的是组织级 Usage 和 Costs 接口，所以 key 需要有读取组织 usage/costs 的权限。
-3. 把 key 填到 `OPENAI_ADMIN_API_KEY`。
-4. 如果你的账号有多个 organization，或接口要求指定组织，把组织 ID 填到 `OPENAI_ORG_ID`；单组织账号通常可以留空。
+1. 用 Organization Owner 账号登录 OpenAI Platform。
+2. 进入 Organization settings 里的 Admin keys 页面：`https://platform.openai.com/settings/organization/admin-keys`。
+3. 点击 `Create new admin key` 创建 Admin API key。这里不是普通项目的 API keys 页面。
+4. 这个 dashboard 调用的是组织级 Usage 和 Costs 接口，OpenAI 官方示例也使用 `OPENAI_ADMIN_KEY` 调用这些接口；如果创建页允许选择 scope，请给 usage/costs 相关读取权限，或使用只读/最小可用权限。
+5. 把生成的 key 填到 `OPENAI_ADMIN_API_KEY`。
+6. 如果你的账号有多个 organization，或接口要求指定组织，把组织 ID 填到 `OPENAI_ORG_ID`；单组织账号通常可以留空。
 
 注意：
 
 - ChatGPT 订阅和 OpenAI API 是两套账单系统，OpenAI 官方说明二者的费用和历史记录通常分开查看。
 - 这里的 OpenAI API 同步会查询 `/v1/organization/costs` 和 `/v1/organization/usage/completions`，展示 API 费用、输入 token、输出 token 和请求数。
+- 只有 Organization Owner 可以创建和使用 Admin API key；普通 Project API key 通常无法调用这些 organization 级接口。
 
 官方文档：
 
 - OpenAI Usage API: https://platform.openai.com/docs/api-reference/usage
+- OpenAI Admin API keys: https://platform.openai.com/settings/organization/admin-keys
+- OpenAI Admin API FAQ: https://help.openai.com/en/articles/9687866-admin-and-audit-logs-api-for-the-api-platform
 - OpenAI ChatGPT vs Platform billing: https://help.openai.com/en/articles/9039756-billing-settings-in-chatgpt-vs-platform
 
 ## ChatGPT Pro
