@@ -162,9 +162,22 @@ Cloud Billing account
 
 1. 在 Google Cloud Console 选择一个用于存放账单导出数据的项目，建议单独建一个 FinOps 或 billing 项目。
 2. 确认这个项目已启用结算，并且关联到你要导出的 Cloud Billing account。
-3. 创建 BigQuery dataset，例如 `all_billing_data`。记下 project ID 和 dataset ID。
+3. 创建 BigQuery dataset，例如 `api_spend_billing`。记下 project ID 和 dataset ID。
+   - 中文控制台路径：进入 **BigQuery** 后，在左侧 **资源管理器** 里找到项目 `api-spend-billing-export`。
+   - 点击项目名右侧的 `⋮` 三点菜单。
+   - 选择 **创建数据集**。
+   - **数据集 ID** 填 `api_spend_billing`。
+   - **位置类型** 选 **多区域**，**多区域** 可选 `US`。
+   - 其他保持默认，点击 **创建数据集**。
 4. 进入 Cloud Billing 的 Billing export 页面，选择目标 billing account。
-5. 启用 Standard usage cost data 或 Detailed usage cost data 导出，目标选择上一步的 BigQuery dataset。
+   - 中文控制台路径：左上角菜单 `☰` -> **结算** -> 选择你的 **结算账号** -> 左侧 **账单导出**。
+   - 页面标题通常是 **结算数据导出**，页签是 **BigQuery Export**。
+5. 启用标准使用费用导出，目标选择上一步的 BigQuery dataset。
+   - 在 **标准使用费用** 这一块点击 **修改设置**。
+   - 选择 **项目**：`api-spend-billing-export`。
+   - 选择 **数据集**：`api_spend_billing`，或你实际创建的数据集 ID。
+   - 保存设置。
+   - 暂时不用启用 **详细的使用费**、**价格**、**承诺使用折扣导出**。当前 dashboard 查询标准账单导出就够；价格表和 CUD 导出不是实际用量账单。
 6. 等待导出表生成。常见表名类似 `gcp_billing_export_v1_XXXXXX` 或 `gcp_billing_export_resource_v1_XXXXXX`，把真实表名填入 `GCP_BILLING_TABLE`。
 7. 创建一个 service account，用于本地 dashboard 查询 BigQuery。
 8. 给这个 service account 授权：
