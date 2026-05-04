@@ -2,6 +2,8 @@ from datetime import UTC, datetime, time, timedelta
 import math
 from typing import Any, Iterable
 
+from google.oauth2 import service_account
+
 from api_spend_dashboard.config import Settings
 from api_spend_dashboard.models import UsageSnapshot
 from api_spend_dashboard.providers.base import ProviderSyncError, SyncResult
@@ -48,7 +50,7 @@ class GeminiConnector:
             ]
         )
         try:
-            client = bigquery.Client(project=self.settings.gcp_billing_project_id)
+            client = _bigquery_client(self.settings, bigquery)
             rows = client.query(query, job_config=job_config).result()
         except Exception as exc:
             raise ProviderSyncError(
@@ -57,6 +59,14 @@ class GeminiConnector:
 
         snapshots = rows_to_snapshots(self.settings, rows)
         return SyncResult(self.provider_id, snapshots, "Gemini BigQuery billing synced")
+
+
+def _bigquery_client(settings: Settings, bigquery: Any) -> Any:
+    credentials_path = settings.google_application_credentials.strip()
+    credentials = None
+    if credentials_path:
+        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+    return bigquery.Client(project=settings.gcp_billing_project_id, credentials=credentials)
 
 
 def rows_to_snapshots(settings: Settings, rows: Iterable[Any]) -> list[UsageSnapshot]:

@@ -1,4 +1,5 @@
 .env
+.local-secrets/
 .venv/
 __pycache__/
 *.py[cod]

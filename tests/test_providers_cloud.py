@@ -8,8 +8,40 @@ import respx
 from api_spend_dashboard.config import Settings
 from api_spend_dashboard.db import Database
 from api_spend_dashboard.providers.base import ProviderSyncError
+from api_spend_dashboard.providers import gemini
 from api_spend_dashboard.providers.gemini import rows_to_snapshots
 from api_spend_dashboard.providers.qianfan import QianfanConnector, _signed_headers
+
+
+def test_gemini_bigquery_client_uses_configured_service_account_file(monkeypatch):
+    credentials = object()
+    settings = Settings(
+        gcp_billing_project_id="billing-project",
+        google_application_credentials="/tmp/gcp-billing-reader.json",
+    )
+
+    def fake_from_service_account_file(path):
+        assert path == "/tmp/gcp-billing-reader.json"
+        return credentials
+
+    monkeypatch.setattr(
+        gemini.service_account.Credentials,
+        "from_service_account_file",
+        fake_from_service_account_file,
+    )
+
+    class FakeBigQuery:
+        class Client:
+            calls = []
+
+            def __init__(self, *, project, credentials=None):
+                self.calls.append({"project": project, "credentials": credentials})
+
+    gemini._bigquery_client(settings, FakeBigQuery)
+
+    assert FakeBigQuery.Client.calls == [
+        {"project": "billing-project", "credentials": credentials}
+    ]
 
 
 def test_gemini_rows_to_snapshots(temp_db_url):
