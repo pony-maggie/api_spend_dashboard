@@ -12,11 +12,7 @@ Local browser dashboard for tracking personal API and infrastructure usage costs
 
 ### 截图
 
-![Dashboard 总览截图占位](img/1.png)
-
-![平台配置状态截图占位](img/2.png)
-
-![用量趋势截图占位](img/3.png)
+![API Spend Dashboard 首页](img/1.png)
 
 ### 运行
 
@@ -27,12 +23,12 @@ cp .env.example .env
 scripts/restart-server.sh
 ```
 
-打开 http://127.0.0.1:8000。
+打开 http://127.0.0.1:18765。
 
 `scripts/restart-server.sh` 会停止目标端口上已有的本项目 Uvicorn 进程，然后以前台方式启动 dashboard。使用时保持这个终端开着；要停止服务就按 `Ctrl+C`。如果要换端口：
 
 ```bash
-PORT=8001 scripts/restart-server.sh
+PORT=18766 scripts/restart-server.sh
 ```
 
 ### 配置方式
@@ -148,12 +144,12 @@ cp .env.example .env
 scripts/restart-server.sh
 ```
 
-Open http://127.0.0.1:8000.
+Open http://127.0.0.1:18765.
 
 The restart script stops any existing project Uvicorn process on the target port, then starts the dashboard in the foreground. Keep that terminal open while using the dashboard; press `Ctrl+C` to stop it. Runtime PID data is written under `.run/`. To use a different port:
 
 ```bash
-PORT=8001 scripts/restart-server.sh
+PORT=18766 scripts/restart-server.sh
 ```
 
 ## Configuration
@@ -197,13 +193,3 @@ Set `DIGITALOCEAN_ENABLED=true` and `DIGITALOCEAN_TOKEN`.
 ## Data
 
 SQLite data is stored under `data/` by default through `DATABASE_URL=sqlite:///./data/api_spend.sqlite3`. The `data/` directory is ignored by git.
-
-## Verification
-
-Task 9 verification used these commands/results:
-
-- `.venv/bin/python -m pytest -q` -> `69 passed`
-- `.venv/bin/python -m ruff check .` -> passed
-- Uvicorn factory server was verified on port 8001 because port 8000 was already in use.
-- `curl -s http://127.0.0.1:8001/ | rg "API Spend Dashboard"` -> matched `API Spend Dashboard`
-- `curl -s http://127.0.0.1:8001/api/config/status | rg "openai|chatgpt_pro|minimax|gemini|qianfan|brave|digitalocean"` -> matched all provider keys

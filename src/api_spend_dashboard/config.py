@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, env_file_encoding="utf-8", extra="ignore")
 
     app_host: str = "127.0.0.1"
-    app_port: int = 8000
+    app_port: int = 18765
     database_url: str = "sqlite:///./data/api_spend.sqlite3"
     sync_interval_hours: int = Field(default=6, ge=1)
     default_currency: str = "USD"

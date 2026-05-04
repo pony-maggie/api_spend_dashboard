@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-18765}"
 RUN_DIR="$ROOT_DIR/.run"
 PID_FILE="$RUN_DIR/api-spend-dashboard.pid"
 APP_TARGET="api_spend_dashboard.main:create_app"

@@ -15,13 +15,13 @@
 scripts/restart-server.sh
 ```
 
-打开 http://127.0.0.1:8000 后点击 `Sync now`，看对应平台状态是否从 `missing_config` 变成 `configured` 或成功同步。
+打开 http://127.0.0.1:18765 后点击 `Sync now`，看对应平台状态是否从 `missing_config` 变成 `configured` 或成功同步。
 
 ## 通用配置
 
 ```env
 APP_HOST=127.0.0.1
-APP_PORT=8000
+APP_PORT=18765
 DATABASE_URL=sqlite:///./data/api_spend.sqlite3
 SYNC_INTERVAL_HOURS=6
 DEFAULT_CURRENCY=USD
