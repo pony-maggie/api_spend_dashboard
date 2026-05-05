@@ -4,8 +4,25 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-18765}"
+env_value() {
+  local key="$1"
+  local fallback="$2"
+  local env_file="$ROOT_DIR/.env"
+
+  if [[ -f "$env_file" ]]; then
+    local value
+    value="$(awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$env_file")"
+    if [[ -n "$value" ]]; then
+      printf '%s\n' "$value"
+      return
+    fi
+  fi
+
+  printf '%s\n' "$fallback"
+}
+
+HOST="${HOST:-$(env_value APP_HOST 127.0.0.1)}"
+PORT="${PORT:-$(env_value APP_PORT 18765)}"
 RUN_DIR="$ROOT_DIR/.run"
 PID_FILE="$RUN_DIR/api-spend-dashboard.pid"
 APP_TARGET="api_spend_dashboard.main:create_app"
@@ -46,10 +63,7 @@ if [[ -f "$PID_FILE" ]]; then
 fi
 
 while IFS= read -r pid; do
-  command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-  if [[ "$command" == *"uvicorn"* && "$command" == *"$APP_TARGET"* ]]; then
-    stop_pid "$pid"
-  fi
+  stop_pid "$pid"
 done < <(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
 
 echo "Starting API Spend Dashboard on http://$HOST:$PORT"

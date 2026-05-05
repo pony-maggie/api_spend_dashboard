@@ -26,15 +26,32 @@ function formatCurrency(value) {
 }
 
 function formatCurrencyWithCode(value, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency || "USD",
+  const code = currency || "USD";
+  const amount = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
+  return `${code} ${amount}`;
 }
 
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function breakdownName(row) {
+  if (row.source_type === "recurring_expense") {
+    return row.name || row.expense_id;
+  }
+  return providers.find((provider) => provider.id === row.provider_id)?.name || row.provider_id;
 }
 
 function setStatus(message, state = "") {
@@ -67,12 +84,14 @@ function renderSummaryCards(summaryData) {
   const summary = summaryData.summary || summaryData.month || {};
   const dailyCosts = summaryData.daily_costs || [];
   const totalDailyCost = dailyCosts.reduce((sum, row) => sum + Number(row.cost || 0), 0);
+  const monthSpend = monthSpendCard(summaryData);
 
   const cards = [
     {
       label: "Month spend",
-      value: formatCurrency(summary.total_cost),
-      subtext: `${formatNumber(summary.provider_count)} providers with data`,
+      value: monthSpend.value,
+      subtext: monthSpend.subtext,
+      tooltip: monthSpend.tooltip,
     },
     {
       label: "Tracked tokens",
@@ -94,6 +113,159 @@ function renderSummaryCards(summaryData) {
   document.querySelector("#summary-cards").innerHTML = cards
     .map(
       (card) => `
+        <article class="metric-card${card.tooltip ? " metric-card--has-tooltip" : ""}" ${
+          card.tooltip ? 'tabindex="0" aria-describedby="month-spend-tooltip"' : ""
+        }>
+          <p class="metric-label">${escapeHtml(card.label)}</p>
+          <p class="metric-value">${escapeHtml(card.value)}</p>
+          <p class="metric-subtext">${escapeHtml(card.subtext)}</p>
+          ${card.tooltip || ""}
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function monthSpendCard(summaryData) {
+  const summary = summaryData.summary || summaryData.month || {};
+  const currencyTotals = summary.cost_totals_by_currency || [];
+  const convertedTotal = summary.converted_total || null;
+  const availableBreakdown = (summaryData.month_cost_breakdown || []).filter((row) => row.cost_available);
+  const unavailableBreakdown = (summaryData.month_cost_breakdown || []).filter((row) => !row.cost_available);
+  const value = convertedTotal?.amount != null
+    ? formatCurrencyWithCode(convertedTotal.amount, convertedTotal.currency)
+    : currencyTotals.length
+    ? currencyTotals.map((row) => formatCurrencyWithCode(row.cost, row.currency)).join(" + ")
+    : formatCurrencyWithCode(summary.total_cost, "USD");
+  const subtext =
+    convertedTotal?.amount != null
+      ? `${formatSpendSourceCount(summary)} · converted to ${convertedTotal.currency}`
+      : `${formatSpendSourceCount(summary)} · missing FX rate`;
+
+  return {
+    value,
+    subtext,
+    tooltip: renderMonthSpendTooltip(availableBreakdown, unavailableBreakdown, convertedTotal),
+  };
+}
+
+function renderMonthSpendTooltip(availableRows, unavailableRows, convertedTotal = null) {
+  const rows = [...availableRows, ...unavailableRows];
+  if (!rows.length) {
+    return "";
+  }
+
+  const lineItems = rows
+    .map((row) => {
+      const amount = row.cost_available
+        ? formatCurrencyWithCode(row.cost, row.currency)
+        : `${row.currency || "USD"} unavailable`;
+      return `
+        <li>
+          <span>${escapeHtml(breakdownName(row))}</span>
+          <strong>${escapeHtml(amount)}</strong>
+          <em>${escapeHtml(formatBreakdownDetail(row))}</em>
+        </li>
+      `;
+    })
+    .join("");
+
+  return `
+    <div id="month-spend-tooltip" class="metric-tooltip" role="tooltip">
+      <p>Included in month spend</p>
+      <ul>${lineItems}</ul>
+      ${renderConversionSummary(convertedTotal)}
+    </div>
+  `;
+}
+
+function renderConversionSummary(convertedTotal) {
+  if (!convertedTotal) {
+    return "";
+  }
+  if (convertedTotal.amount == null) {
+    return `<small>Missing FX rate for ${escapeHtml((convertedTotal.missing_rates || []).join(", "))}.</small>`;
+  }
+  const rateLines = (convertedTotal.items || [])
+    .map((item) => `${item.currency} x ${item.rate}`)
+    .join(" · ");
+  return `<small>Converted to ${escapeHtml(convertedTotal.currency)} using ${escapeHtml(rateLines)}. ${escapeHtml(
+    convertedTotal.source || "",
+  )}</small>`;
+}
+
+function formatSpendSourceCount(summary) {
+  const providerCount = Number(summary.provider_count || 0);
+  const expenseCount = Number(summary.recurring_expense_count || 0);
+  const parts = [];
+  if (providerCount) {
+    parts.push(`${formatNumber(providerCount)} providers`);
+  }
+  if (expenseCount) {
+    parts.push(`${formatNumber(expenseCount)} recurring`);
+  }
+  return parts.length ? `${parts.join(" + ")} with data` : "No spend data";
+}
+
+function formatBreakdownDetail(row) {
+  if (row.source_type === "recurring_expense") {
+    return [row.category, row.due_date ? `due ${row.due_date}` : ""].filter(Boolean).join(" · ");
+  }
+  return formatCostBasis([row]) || "snapshot";
+}
+
+function renderCodexTokenSummary(usage) {
+  const hint = document.querySelector("#codex-token-hint");
+  const summary = document.querySelector("#codex-token-summary");
+
+  if (!usage.available) {
+    hint.textContent = "No rollout files found under CODEX_HOME sessions.";
+    summary.innerHTML = `
+      <article class="metric-card codex-token-empty">
+        <p class="metric-label">Local tokens</p>
+        <p class="metric-value">0</p>
+        <p class="metric-subtext">No Codex CLI token records found</p>
+      </article>
+    `;
+    renderCodexDailyUsage([]);
+    return;
+  }
+
+  hint.textContent = `${formatNumber(usage.session_count)} sessions with token counts from ${formatNumber(
+    usage.files_scanned,
+  )} rollout files.`;
+
+  const cards = [
+    {
+      label: "Total",
+      value: formatNumber(usage.total_tokens),
+      subtext: "All local Codex CLI sessions",
+    },
+    {
+      label: "Input",
+      value: formatNumber(usage.input_tokens),
+      subtext: "Prompt and context tokens",
+    },
+    {
+      label: "Cached input",
+      value: formatNumber(usage.cached_input_tokens),
+      subtext: "Prompt tokens served from cache",
+    },
+    {
+      label: "Output",
+      value: formatNumber(usage.output_tokens),
+      subtext: "Assistant response tokens",
+    },
+    {
+      label: "Reasoning output",
+      value: formatNumber(usage.reasoning_output_tokens),
+      subtext: "Reasoning tokens reported by Codex",
+    },
+  ];
+
+  summary.innerHTML = cards
+    .map(
+      (card) => `
         <article class="metric-card">
           <p class="metric-label">${card.label}</p>
           <p class="metric-value">${card.value}</p>
@@ -102,6 +274,73 @@ function renderSummaryCards(summaryData) {
       `,
     )
     .join("");
+  renderCodexDailyUsage(usage.daily_token_usage || []);
+}
+
+function renderCodexDailyUsage(rows) {
+  const dailyUsage = document.querySelector("#codex-daily-usage");
+  const recentRows = rows.slice(0, 14);
+
+  if (!recentRows.length) {
+    dailyUsage.innerHTML = `<p class="codex-daily-state">No daily Codex token rows found.</p>`;
+    return;
+  }
+
+  dailyUsage.innerHTML = `
+    <table class="codex-daily-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Sessions</th>
+          <th>Total</th>
+          <th>Input</th>
+          <th>Cached</th>
+          <th>Output</th>
+          <th>Reasoning</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${recentRows
+          .map(
+            (row) => `
+              <tr>
+                <td>${row.date || "Unknown"}</td>
+                <td>${formatNumber(row.session_count)}</td>
+                <td>${formatNumber(row.total_tokens)}</td>
+                <td>${formatNumber(row.input_tokens)}</td>
+                <td>${formatNumber(row.cached_input_tokens)}</td>
+                <td>${formatNumber(row.output_tokens)}</td>
+                <td>${formatNumber(row.reasoning_output_tokens)}</td>
+              </tr>
+            `,
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderCodexTokenError(error) {
+  const hint = document.querySelector("#codex-token-hint");
+  const summary = document.querySelector("#codex-token-summary");
+  hint.textContent = `Could not load local Codex tokens: ${error.message}`;
+  summary.innerHTML = `
+    <article class="metric-card codex-token-empty">
+      <p class="metric-label">Local tokens</p>
+      <p class="metric-value">--</p>
+      <p class="metric-subtext">Check that CODEX_HOME is readable by this server.</p>
+    </article>
+  `;
+  document.querySelector("#codex-daily-usage").innerHTML =
+    `<p class="codex-daily-state">Daily token usage unavailable.</p>`;
+}
+
+async function loadCodexTokenSummary() {
+  try {
+    renderCodexTokenSummary(await fetchJson("/api/codex/tokens"));
+  } catch (error) {
+    renderCodexTokenError(error);
+  }
 }
 
 function providerTotalsById(summaryData) {
@@ -146,6 +385,60 @@ function renderProviders(statuses, summaryData) {
     .join("");
 }
 
+function renderRecurringExpenses(summaryData) {
+  const expenses = summaryData.recurring_expenses || [];
+  const container = document.querySelector("#recurring-expenses");
+  const hint = document.querySelector("#recurring-hint");
+
+  if (!expenses.length) {
+    hint.textContent = "No recurring expenses configured in .env.";
+    container.innerHTML = `<p class="recurring-state">No fixed monthly expenses configured.</p>`;
+    return;
+  }
+
+  hint.textContent = `${formatNumber(expenses.length)} fixed monthly expense(s) configured in .env.`;
+  container.innerHTML = `
+    <table class="recurring-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Amount</th>
+          <th>Due date</th>
+          <th>Status</th>
+          <th>Payment</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${expenses
+          .map(
+            (expense) => `
+              <tr>
+                <td>${escapeHtml(expense.name)}</td>
+                <td>${escapeHtml(expense.category)}</td>
+                <td>${escapeHtml(formatCurrencyWithCode(expense.amount, expense.currency))}</td>
+                <td>${escapeHtml(expense.due_date)}</td>
+                <td><span class="expense-status ${escapeHtml(expense.status)}">${escapeHtml(
+                  formatExpenseStatus(expense.status),
+                )}</span></td>
+                <td>${escapeHtml(formatPaymentMethod(expense.payment_method))}</td>
+              </tr>
+            `,
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function formatExpenseStatus(status) {
+  return (status || "upcoming").replaceAll("_", " ");
+}
+
+function formatPaymentMethod(method) {
+  return method ? method.replaceAll("_", " ") : "-";
+}
+
 function formatProviderTotal(row) {
   if (!row.cost_available) {
     return `${row.currency || "USD"} unavailable`;
@@ -160,6 +453,9 @@ function formatCostBasis(rows) {
   }
   if (bases.includes("month_snapshot")) {
     return "month snapshot";
+  }
+  if (bases.includes("recurring")) {
+    return "recurring";
   }
   return "";
 }
@@ -252,6 +548,11 @@ function renderCharts(summaryData) {
     setChartState("trend-chart", "No daily spend rows yet.");
   }
 
+  if ((summaryData.summary?.cost_totals_by_currency || []).length > 1) {
+    setChartState("share-chart", "Provider share unavailable across mixed currencies.");
+    return;
+  }
+
   const providerTotals = buildMonthProviderTotals(summaryData);
   if (!providerTotals.length) {
     setChartState("share-chart", "No provider spend to chart yet.");
@@ -337,6 +638,7 @@ async function loadDashboard(statusOverride = null) {
 
     renderSummaryCards(summaryData);
     renderProviders(configStatus, summaryData);
+    renderRecurringExpenses(summaryData);
     renderCharts(summaryData);
     if (statusOverride) {
       setStatus(statusOverride.message, statusOverride.state);
@@ -366,6 +668,7 @@ async function syncNow() {
     }
 
     await loadDashboard(syncStatus);
+    await loadCodexTokenSummary();
   } catch (error) {
     setStatus(`Sync failed: ${error.message}`, "error");
   } finally {
@@ -376,4 +679,5 @@ async function syncNow() {
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelector("#sync-now").addEventListener("click", syncNow);
   loadDashboard();
+  loadCodexTokenSummary();
 });

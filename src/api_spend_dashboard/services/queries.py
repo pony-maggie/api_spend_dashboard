@@ -11,11 +11,7 @@ class DashboardQueries:
         self.db = db
 
     def month_summary(self, year: int, month: int) -> dict[str, Any]:
-        start = datetime(year, month, 1, tzinfo=UTC)
-        if month == 12:
-            end = datetime(year + 1, 1, 1, tzinfo=UTC)
-        else:
-            end = datetime(year, month + 1, 1, tzinfo=UTC)
+        start, end = self._month_bounds(year, month)
 
         rows = self.db.query_all(
             """
@@ -56,8 +52,10 @@ class DashboardQueries:
             ),
         )
         row = rows[0]
+        currency_totals = self._month_currency_totals(start, end)
         return {
-            "total_cost": row["total_cost"],
+            "total_cost": self._single_currency_total(currency_totals),
+            "cost_totals_by_currency": currency_totals,
             "total_tokens": row["total_tokens"],
             "total_requests": row["total_requests"],
             "provider_count": row["provider_count"],
@@ -80,11 +78,7 @@ class DashboardQueries:
         )
 
     def month_provider_totals(self, year: int, month: int) -> list[dict[str, Any]]:
-        start = datetime(year, month, 1, tzinfo=UTC)
-        if month == 12:
-            end = datetime(year + 1, 1, 1, tzinfo=UTC)
-        else:
-            end = datetime(year, month + 1, 1, tzinfo=UTC)
+        start, end = self._month_bounds(year, month)
 
         return self.db.query_all(
             """
@@ -136,6 +130,118 @@ class DashboardQueries:
                 self._dt_to_iso(end),
             ),
         )
+
+    def month_cost_breakdown(self, year: int, month: int) -> list[dict[str, Any]]:
+        start = datetime(year, month, 1, tzinfo=UTC)
+        if month == 12:
+            end = datetime(year + 1, 1, 1, tzinfo=UTC)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=UTC)
+
+        return self.db.query_all(
+            """
+            WITH providers_with_daily AS (
+                SELECT DISTINCT provider_id
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND granularity = 'day'
+            ),
+            selected_snapshots AS (
+                SELECT *
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND (
+                        granularity = 'day'
+                        OR (
+                            granularity = 'month'
+                            AND provider_id NOT IN (SELECT provider_id FROM providers_with_daily)
+                        )
+                    )
+            )
+            SELECT
+                provider_id,
+                currency,
+                CASE
+                    WHEN COUNT(cost_amount) = 0 THEN NULL
+                    ELSE COALESCE(SUM(cost_amount), 0)
+                END AS cost,
+                CASE WHEN COUNT(cost_amount) = 0 THEN 0 ELSE 1 END AS cost_available,
+                CASE
+                    WHEN SUM(CASE WHEN granularity = 'day' THEN 1 ELSE 0 END) > 0
+                    THEN 'actual_daily'
+                    ELSE 'month_snapshot'
+                END AS cost_basis
+            FROM selected_snapshots
+            GROUP BY provider_id, currency
+            ORDER BY provider_id, currency
+            """,
+            (
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+            ),
+        )
+
+    def _month_currency_totals(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        return self.db.query_all(
+            """
+            WITH providers_with_daily AS (
+                SELECT DISTINCT provider_id
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND granularity = 'day'
+            ),
+            selected_snapshots AS (
+                SELECT *
+                FROM usage_snapshots
+                WHERE
+                    period_start >= ?
+                    AND period_start < ?
+                    AND cost_amount IS NOT NULL
+                    AND (
+                        granularity = 'day'
+                        OR (
+                            granularity = 'month'
+                            AND provider_id NOT IN (SELECT provider_id FROM providers_with_daily)
+                        )
+                    )
+            )
+            SELECT
+                currency,
+                COALESCE(SUM(cost_amount), 0) AS cost
+            FROM selected_snapshots
+            GROUP BY currency
+            ORDER BY currency
+            """,
+            (
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+                self._dt_to_iso(start),
+                self._dt_to_iso(end),
+            ),
+        )
+
+    @staticmethod
+    def _single_currency_total(currency_totals: list[dict[str, Any]]) -> float | int | None:
+        if not currency_totals:
+            return 0
+        if len(currency_totals) == 1:
+            return currency_totals[0]["cost"]
+        return None
+
+    @staticmethod
+    def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+        start = datetime(year, month, 1, tzinfo=UTC)
+        if month == 12:
+            return start, datetime(year + 1, 1, 1, tzinfo=UTC)
+        return start, datetime(year, month + 1, 1, tzinfo=UTC)
 
     @staticmethod
     def _dt_to_iso(value: datetime) -> str:

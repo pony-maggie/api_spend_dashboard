@@ -13,7 +13,15 @@ from fastapi.templating import Jinja2Templates
 
 from api_spend_dashboard.config import Settings, get_settings
 from api_spend_dashboard.db import Database
+from api_spend_dashboard.services.codex_usage import collect_codex_token_usage
+from api_spend_dashboard.services.currency_conversion import convert_cost_totals
 from api_spend_dashboard.services.queries import DashboardQueries
+from api_spend_dashboard.services.recurring_expenses import (
+    collect_recurring_expenses,
+    merge_cost_totals,
+    recurring_expense_breakdown_rows,
+    single_currency_total,
+)
 from api_spend_dashboard.services.sync import SyncService
 
 
@@ -77,11 +85,40 @@ def create_app(settings: Settings | None = None, *, start_scheduler: bool = True
     @app.get("/api/summary")
     async def summary() -> dict:
         now = datetime.now(UTC)
+        month_summary = queries.month_summary(now.year, now.month)
+        recurring_expenses = collect_recurring_expenses(
+            app_settings,
+            now.year,
+            now.month,
+            today=now.date(),
+        )
+        cost_totals = merge_cost_totals(
+            month_summary["cost_totals_by_currency"],
+            recurring_expenses,
+        )
+        month_summary["cost_totals_by_currency"] = cost_totals
+        month_summary["total_cost"] = single_currency_total(cost_totals)
+        month_summary["converted_total"] = convert_cost_totals(
+            cost_totals,
+            display_currency=app_settings.display_currency,
+            exchange_rates=app_settings.exchange_rates_to_display,
+            source=app_settings.exchange_rate_source,
+        )
+        month_summary["recurring_expense_count"] = len(recurring_expenses)
         return {
-            "summary": queries.month_summary(now.year, now.month),
+            "summary": month_summary,
             "daily_costs": queries.daily_costs(),
             "provider_totals": queries.month_provider_totals(now.year, now.month),
+            "month_cost_breakdown": [
+                *queries.month_cost_breakdown(now.year, now.month),
+                *recurring_expense_breakdown_rows(recurring_expenses),
+            ],
+            "recurring_expenses": recurring_expenses,
         }
+
+    @app.get("/api/codex/tokens")
+    async def codex_tokens() -> dict:
+        return collect_codex_token_usage()
 
     @app.post("/api/sync")
     async def sync() -> dict:

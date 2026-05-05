@@ -206,6 +206,136 @@ def test_month_summary_includes_month_only_provider(temp_db_url):
     assert summary["provider_count"] == 2
 
 
+def test_month_summary_groups_cost_by_currency_without_mixing_amounts(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="chatgpt_pro",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            currency="USD",
+            cost_amount=200.0,
+            total_tokens=None,
+            requests=None,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="digitalocean",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            currency="USD",
+            cost_amount=1.93,
+            total_tokens=None,
+            requests=None,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="minimax",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            currency="RMB",
+            cost_amount=1190.0,
+            total_tokens=None,
+            requests=None,
+        )
+    )
+
+    summary = DashboardQueries(db).month_summary(2026, 5)
+
+    assert summary["total_cost"] is None
+    assert summary["cost_totals_by_currency"] == [
+        {"currency": "RMB", "cost": 1190.0},
+        {"currency": "USD", "cost": 201.93},
+    ]
+
+
+def test_month_cost_breakdown_returns_hover_line_items(temp_db_url):
+    db = Database(temp_db_url)
+    db.migrate()
+
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="openai",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 5, 2, tzinfo=UTC),
+            granularity="day",
+            currency="USD",
+            cost_amount=5.0,
+            total_tokens=100,
+            requests=2,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="openai",
+            period_start=datetime(2026, 5, 2, tzinfo=UTC),
+            period_end=datetime(2026, 5, 3, tzinfo=UTC),
+            granularity="day",
+            currency="USD",
+            cost_amount=7.0,
+            total_tokens=150,
+            requests=3,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="minimax",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            currency="RMB",
+            cost_amount=1190.0,
+            total_tokens=None,
+            requests=None,
+        )
+    )
+    db.upsert_snapshot(
+        _snapshot(
+            provider_id="brave",
+            period_start=datetime(2026, 5, 1, tzinfo=UTC),
+            period_end=datetime(2026, 6, 1, tzinfo=UTC),
+            granularity="month",
+            currency="USD",
+            cost_amount=None,
+            total_tokens=None,
+            requests=None,
+        )
+    )
+
+    rows = DashboardQueries(db).month_cost_breakdown(2026, 5)
+
+    assert rows == [
+        {
+            "provider_id": "brave",
+            "currency": "USD",
+            "cost": None,
+            "cost_available": 0,
+            "cost_basis": "month_snapshot",
+        },
+        {
+            "provider_id": "minimax",
+            "currency": "RMB",
+            "cost": 1190.0,
+            "cost_available": 1,
+            "cost_basis": "month_snapshot",
+        },
+        {
+            "provider_id": "openai",
+            "currency": "USD",
+            "cost": 12.0,
+            "cost_available": 1,
+            "cost_basis": "actual_daily",
+        },
+    ]
+
+
 def test_month_provider_totals_include_month_only_provider(temp_db_url):
     db = Database(temp_db_url)
     db.migrate()

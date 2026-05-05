@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>API Spend Dashboard</title>
+    <title>Spend Dashboard</title>
     <link rel="stylesheet" href="/static/app.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/app.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="app-shell">
       <header class="topbar">
         <div>
-          <h1>API Spend Dashboard</h1>
+          <h1>Spend Dashboard</h1>
           <p id="sync-status" role="status" aria-live="polite">Loading dashboard...</p>
         </div>
         <button id="sync-now" type="button">Sync now</button>
@@ -62,6 +62,43 @@
             </div>
           </div>
           <div id="provider-grid" class="provider-grid"></div>
+        </section>
+
+        <section class="recurring-section" aria-labelledby="recurring-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="recurring-title">Recurring Expenses</h2>
+              <p id="recurring-hint">Fixed monthly expenses from .env.</p>
+            </div>
+          </div>
+          <div id="recurring-expenses" class="recurring-expenses">
+            <p class="recurring-state">Loading recurring expenses...</p>
+          </div>
+        </section>
+
+        <section class="codex-section" aria-labelledby="codex-token-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="codex-token-title">Codex CLI Tokens</h2>
+              <p id="codex-token-hint">Local session token totals.</p>
+            </div>
+          </div>
+          <div id="codex-token-summary" class="codex-token-grid">
+            <article class="metric-card skeleton"></article>
+            <article class="metric-card skeleton"></article>
+            <article class="metric-card skeleton"></article>
+            <article class="metric-card skeleton"></article>
+            <article class="metric-card skeleton"></article>
+          </div>
+          <div class="codex-daily-panel" aria-labelledby="codex-daily-title">
+            <div class="codex-daily-heading">
+              <h3 id="codex-daily-title">Daily Token Usage</h3>
+              <span>Recent days</span>
+            </div>
+            <div id="codex-daily-usage" class="codex-daily-table-wrap">
+              <p class="codex-daily-state">Loading daily token usage...</p>
+            </div>
+          </div>
         </section>
       </main>
     </div>

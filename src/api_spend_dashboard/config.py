@@ -1,8 +1,20 @@
 from functools import lru_cache
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class RecurringExpenseConfig(BaseModel):
+    id: str
+    name: str
+    category: str
+    amount: float = Field(ge=0)
+    currency: str
+    due_day: int = Field(ge=1, le=31)
+    payment_method: str = ""
+    notes: str = ""
+    enabled: bool = True
 
 
 class Settings(BaseSettings):
@@ -58,6 +70,13 @@ class Settings(BaseSettings):
 
     digitalocean_enabled: bool = False
     digitalocean_token: str = ""
+
+    recurring_expenses_enabled: bool = False
+    recurring_expenses: list[RecurringExpenseConfig] = Field(default_factory=list)
+
+    display_currency: str = "HKD"
+    exchange_rates_to_display: dict[str, float] = Field(default_factory=lambda: {"HKD": 1.0})
+    exchange_rate_source: str = "manual .env exchange rates"
 
     def provider_config_status(self) -> dict[str, dict[str, Any]]:
         requirements = {

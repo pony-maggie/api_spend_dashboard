@@ -96,3 +96,59 @@ def test_env_file_loading_parses_booleans_and_reports_missing_config(tmp_path, m
     assert statuses["brave"]["status"] == "disabled"
     assert statuses["chatgpt_pro"]["status"] == "missing_config"
     assert statuses["chatgpt_pro"]["missing"] == ["CHATGPT_PRO_PRICE"]
+
+
+def test_env_file_loading_parses_recurring_expenses(tmp_path, monkeypatch):
+    monkeypatch.delenv("RECURRING_EXPENSES_ENABLED", raising=False)
+    monkeypatch.delenv("RECURRING_EXPENSES", raising=False)
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "RECURRING_EXPENSES_ENABLED=true",
+                (
+                    'RECURRING_EXPENSES=[{"id":"rent","name":"Rent","category":"Housing",'
+                    '"amount":23500,"currency":"HKD","due_day":1,'
+                    '"payment_method":"bank_transfer"},'
+                    '{"id":"mobile","name":"Mobile","category":"Telecom",'
+                    '"amount":177,"currency":"HKD","due_day":6}]'
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.recurring_expenses_enabled is True
+    assert len(settings.recurring_expenses) == 2
+    assert settings.recurring_expenses[0].id == "rent"
+    assert settings.recurring_expenses[0].amount == 23500
+    assert settings.recurring_expenses[0].currency == "HKD"
+    assert settings.recurring_expenses[0].due_day == 1
+    assert settings.recurring_expenses[0].payment_method == "bank_transfer"
+
+
+def test_env_file_loading_parses_display_currency_rates(tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY_CURRENCY", raising=False)
+    monkeypatch.delenv("EXCHANGE_RATES_TO_DISPLAY", raising=False)
+    monkeypatch.delenv("EXCHANGE_RATE_SOURCE", raising=False)
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "DISPLAY_CURRENCY=HKD",
+                'EXCHANGE_RATES_TO_DISPLAY={"HKD":1,"USD":7.8357,"RMB":1.1475}',
+                "EXCHANGE_RATE_SOURCE=manual rates",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.display_currency == "HKD"
+    assert settings.exchange_rates_to_display == {"HKD": 1.0, "USD": 7.8357, "RMB": 1.1475}
+    assert settings.exchange_rate_source == "manual rates"
